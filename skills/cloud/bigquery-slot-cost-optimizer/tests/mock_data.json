@@ -1,0 +1,222 @@
+[
+  {
+    "project_id": "acme-analytics-prod",
+    "job_id": "job_healthy_001",
+    "user_email": "data-analyst@example.com",
+    "start_time": "2026-03-01T10:00:00Z",
+    "end_time": "2026-03-01T10:00:10Z",
+    "query": "SELECT customer_id, SUM(total_amount) FROM `acme-analytics-prod.ecommerce.orders` WHERE order_timestamp >= '2026-03-01 00:00:00 UTC' AND order_timestamp < '2026-03-02 00:00:00 UTC' GROUP BY customer_id",
+    "total_slot_ms": 18000000,
+    "total_bytes_processed": 536870912,
+    "total_bytes_billed": 1048576000,
+    "cache_hit": false,
+    "referenced_tables": [
+      {
+        "project_id": "acme-analytics-prod",
+        "dataset_id": "ecommerce",
+        "table_id": "orders"
+      }
+    ],
+    "job_stages": [
+      {
+        "stage_id": 0,
+        "name": "S00: Input",
+        "records_read": 50000,
+        "records_written": 5000,
+        "shuffle_output_bytes": 1048576,
+        "shuffle_output_bytes_spilled": 0,
+        "wait_ratio_avg": 0.05,
+        "slot_ms": 9000000
+      },
+      {
+        "stage_id": 1,
+        "name": "S01: Output",
+        "records_read": 5000,
+        "records_written": 1000,
+        "shuffle_output_bytes": 262144,
+        "shuffle_output_bytes_spilled": 0,
+        "wait_ratio_avg": 0.02,
+        "slot_ms": 9000000
+      }
+    ],
+    "performance_insights": {
+      "stage_performance_standalone_insights": [
+        {
+          "stage_id": 0,
+          "slot_contention": false,
+          "insufficient_shuffle_quota": false
+        }
+      ]
+    }
+  },
+  {
+    "project_id": "acme-analytics-prod",
+    "job_id": "job_cartesian_002",
+    "user_email": "junior-dev@example.com",
+    "start_time": "2026-03-01T11:00:00Z",
+    "end_time": "2026-03-01T11:15:00Z",
+    "query": "SELECT * FROM `acme-analytics-prod.ecommerce.orders` o CROSS JOIN `acme-analytics-prod.ecommerce.web_events` e WHERE o.customer_id = e.customer_id",
+    "total_slot_ms": 108000000,
+    "total_bytes_processed": 10737418240,
+    "total_bytes_billed": 10737418240,
+    "cache_hit": false,
+    "referenced_tables": [
+      {
+        "project_id": "acme-analytics-prod",
+        "dataset_id": "ecommerce",
+        "table_id": "orders"
+      },
+      {
+        "project_id": "acme-analytics-prod",
+        "dataset_id": "ecommerce",
+        "table_id": "web_events"
+      }
+    ],
+    "job_stages": [
+      {
+        "stage_id": 0,
+        "name": "S00: Input Scan",
+        "records_read": 10000,
+        "records_written": 10000,
+        "shuffle_output_bytes": 5242880,
+        "shuffle_output_bytes_spilled": 0,
+        "wait_ratio_avg": 0.10,
+        "slot_ms": 18000000
+      },
+      {
+        "stage_id": 1,
+        "name": "S01: Exploding Join",
+        "records_read": 10000,
+        "records_written": 50000000,
+        "shuffle_output_bytes": 1073741824,
+        "shuffle_output_bytes_spilled": 524288000,
+        "wait_ratio_avg": 0.25,
+        "slot_ms": 90000000
+      }
+    ],
+    "performance_insights": {
+      "stage_performance_standalone_insights": [
+        {
+          "stage_id": 1,
+          "slot_contention": false,
+          "insufficient_shuffle_quota": true
+        }
+      ]
+    }
+  },
+  {
+    "project_id": "acme-analytics-prod",
+    "job_id": "job_contention_003",
+    "user_email": "etl-pipeline@example.com",
+    "start_time": "2026-03-01T12:00:00Z",
+    "end_time": "2026-03-01T12:30:00Z",
+    "query": "INSERT INTO `acme-analytics-prod.warehouse.daily_rollup` SELECT region, date, count(*) FROM `acme-analytics-prod.warehouse.events` GROUP BY 1, 2",
+    "total_slot_ms": 360000000,
+    "total_bytes_processed": 53687091200,
+    "total_bytes_billed": 53687091200,
+    "cache_hit": false,
+    "referenced_tables": [
+      {
+        "project_id": "acme-analytics-prod",
+        "dataset_id": "warehouse",
+        "table_id": "events"
+      }
+    ],
+    "job_stages": [
+      {
+        "stage_id": 0,
+        "name": "S00: Starved Stage",
+        "records_read": 1000000,
+        "records_written": 1000000,
+        "shuffle_output_bytes": 104857600,
+        "shuffle_output_bytes_spilled": 0,
+        "wait_ratio_avg": 0.68,
+        "slot_ms": 360000000
+      }
+    ],
+    "performance_insights": {
+      "stage_performance_standalone_insights": [
+        {
+          "stage_id": 0,
+          "slot_contention": true,
+          "insufficient_shuffle_quota": false
+        }
+      ]
+    }
+  },
+  {
+    "project_id": "acme-analytics-prod",
+    "job_id": "job_unpartitioned_004",
+    "user_email": "bi-tool@example.com",
+    "start_time": "2026-03-01T13:00:00Z",
+    "end_time": "2026-03-01T13:01:00Z",
+    "query": "SELECT user_id, action, ip_address FROM `acme-analytics-prod.audit.raw_logs`",
+    "total_slot_ms": 72000000,
+    "total_bytes_processed": 214748364800,
+    "total_bytes_billed": 214748364800,
+    "cache_hit": false,
+    "referenced_tables": [
+      {
+        "project_id": "acme-analytics-prod",
+        "dataset_id": "audit",
+        "table_id": "raw_logs"
+      }
+    ],
+    "job_stages": [
+      {
+        "stage_id": 0,
+        "name": "S00: Full Table Scan",
+        "records_read": 20000000,
+        "records_written": 20000000,
+        "shuffle_output_bytes": 524288000,
+        "shuffle_output_bytes_spilled": 0,
+        "wait_ratio_avg": 0.08,
+        "slot_ms": 72000000
+      }
+    ],
+    "performance_insights": {
+      "stage_performance_standalone_insights": []
+    }
+  },
+  {
+    "project_id": "acme-analytics-prod",
+    "job_id": "job_cached_005",
+    "user_email": "dashboard@example.com",
+    "start_time": "2026-03-01T14:00:00Z",
+    "end_time": "2026-03-01T14:00:01Z",
+    "query": "SELECT count(*) FROM `acme-analytics-prod.ecommerce.customers`",
+    "total_slot_ms": 0,
+    "total_bytes_processed": 0,
+    "total_bytes_billed": 0,
+    "cache_hit": true,
+    "referenced_tables": [],
+    "job_stages": [],
+    "performance_insights": null
+  },
+  {
+    "project_id": "acme-analytics-prod",
+    "job_id": "job_subsecond_006",
+    "user_email": "quick-check@example.com",
+    "start_time": "2026-03-01T15:00:00Z",
+    "end_time": "2026-03-01T15:00:00Z",
+    "query": "SELECT 1",
+    "total_slot_ms": 500,
+    "total_bytes_processed": 0,
+    "total_bytes_billed": 0,
+    "cache_hit": false,
+    "referenced_tables": [],
+    "job_stages": [
+      {
+        "stage_id": 0,
+        "name": "S00: Literal",
+        "records_read": 0,
+        "records_written": 1,
+        "shuffle_output_bytes": 32,
+        "shuffle_output_bytes_spilled": 0,
+        "wait_ratio_avg": 0.0,
+        "slot_ms": 500
+      }
+    ],
+    "performance_insights": null
+  }
+]

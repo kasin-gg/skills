@@ -1,0 +1,58 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "google-skills-bigquery-optimizer"
+version = "1.0.0"
+description = "BigQuery Slot & Cost Optimizer Agent Skill for Google Skills"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Google Cloud Professional Services & Developer Relations"}
+]
+keywords = ["google-cloud", "bigquery", "agent-skills", "slot-optimizer", "cost-optimization"]
+dependencies = [
+    "google-cloud-bigquery>=3.20.0",
+    "tabulate>=0.9.0",
+    "pyyaml>=6.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pyyaml>=6.0.1",
+    "black>=24.0.0",
+    "flake8>=7.0.0",
+    "mypy>=1.9.0",
+]
+
+[project.scripts]
+bigquery-slot-analyzer = "scripts.slot_analyzer:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "--verbose"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
