@@ -166,6 +166,8 @@ class TestSlotAnalyzer(unittest.TestCase):
         self.assertFalse(args.dry_run)
         self.assertIsNone(args.mock_data_file)
         self.assertIsNone(args.output_file)
+        self.assertEqual(args.ondemand_rate, 6.25)
+        self.assertEqual(args.slot_hour_rate, 0.06)
 
     def test_cli_parser_custom_args(self):
         """Verifies custom arguments in CLI parser."""
@@ -179,6 +181,8 @@ class TestSlotAnalyzer(unittest.TestCase):
             "--format", "json",
             "--threshold-slot-hours", "1.5",
             "--dry-run",
+            "--ondemand-rate", "7.50",
+            "--slot-hour-rate", "0.08",
         ])
         self.assertEqual(args.project_id, "test-project-123")
         self.assertEqual(args.region, "eu")
@@ -188,6 +192,8 @@ class TestSlotAnalyzer(unittest.TestCase):
         self.assertEqual(args.format, "json")
         self.assertEqual(args.threshold_slot_hours, 1.5)
         self.assertTrue(args.dry_run)
+        self.assertEqual(args.ondemand_rate, 7.50)
+        self.assertEqual(args.slot_hour_rate, 0.08)
 
     def test_cli_region_normalization(self):
         """Tests regional prefix normalizer."""
@@ -231,9 +237,17 @@ class TestSlotAnalyzer(unittest.TestCase):
         one_tb_bytes = 1_099_511_627_776
         slot_hours = 10.0
 
+        # Default rates ($6.25/TB, $0.06/slot-hour)
         cost_od, cost_ed = calculate_cost_estimates(one_tb_bytes, slot_hours)
         self.assertEqual(cost_od, 6.25)
         self.assertEqual(cost_ed, 0.60)
+
+        # Custom configurable rates ($7.50/TB, $0.08/slot-hour)
+        cost_od_custom, cost_ed_custom = calculate_cost_estimates(
+            one_tb_bytes, slot_hours, ondemand_rate_per_tb=7.50, editions_rate_per_slot_hour=0.08
+        )
+        self.assertEqual(cost_od_custom, 7.50)
+        self.assertEqual(cost_ed_custom, 0.80)
 
         # Zero bytes / zero slot hours
         cost_od_zero, cost_ed_zero = calculate_cost_estimates(0, 0.0)
@@ -429,6 +443,7 @@ class TestSlotAnalyzer(unittest.TestCase):
         table_out = render_table_output(summary)
         self.assertIn("BIGQUERY SLOT & COST OPTIMIZER REPORT", table_out)
         self.assertIn("job_sample_cartesian", table_out)
+        self.assertIn("https://cloud.google.com/bigquery/pricing", table_out)
 
         # JSON output
         json_out = render_json_output(summary)
@@ -437,6 +452,8 @@ class TestSlotAnalyzer(unittest.TestCase):
         self.assertIn("recommendations", parsed_json)
         self.assertIn("top_heavy_jobs", parsed_json)
         self.assertEqual(parsed_json["summary"]["total_queries_analyzed"], 2)
+        self.assertIn("pricing_disclaimer", parsed_json["summary"])
+        self.assertIn("https://cloud.google.com/bigquery/pricing", parsed_json["summary"]["pricing_disclaimer"])
 
         # CSV output
         csv_out = render_csv_output(summary)
@@ -480,6 +497,24 @@ class TestSlotAnalyzer(unittest.TestCase):
         payload = json.loads(captured_output.getvalue())
         self.assertGreaterEqual(payload["summary"]["total_queries_analyzed"], 4)
         self.assertGreater(len(payload["recommendations"]), 0)
+        self.assertIn("pricing_disclaimer", payload["summary"])
+
+    def test_run_analysis_with_custom_pricing_rates(self):
+        """Tests CLI pipeline with custom ondemand and slot-hour pricing rates."""
+        parser = create_argument_parser()
+        args = parser.parse_args([
+            "--mock-data-file", self.mock_data_path,
+            "--format", "json",
+            "--ondemand-rate", "12.50",
+            "--slot-hour-rate", "0.12",
+        ])
+        captured_output = io.StringIO()
+        with mock.patch("sys.stdout", new=captured_output):
+            exit_code = run_analysis(args)
+        self.assertEqual(exit_code, 0)
+        payload = json.loads(captured_output.getvalue())
+        self.assertGreater(payload["summary"]["total_cost_usd_ondemand"], 0)
+        self.assertGreater(payload["summary"]["total_cost_usd_editions"], 0)
 
     def test_run_analysis_output_file(self):
         """Tests writing results to --output-file."""

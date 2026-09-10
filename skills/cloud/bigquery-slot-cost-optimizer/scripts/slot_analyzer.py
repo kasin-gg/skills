@@ -17,6 +17,13 @@
 Analyzes Google Cloud BigQuery INFORMATION_SCHEMA job telemetry to compute
 slot-hours, identify slot contention, pinpoint Cartesian explosions,
 and flag costly unpartitioned table scans.
+
+Note:
+    Pricing calculations for on-demand queries and editions slot-hours are
+    configurable approximations. Actual Google Cloud BigQuery costs vary
+    depending on region, chosen edition (Standard, Enterprise, Enterprise Plus),
+    and baseline or commitment terms. Consult official pricing documentation:
+    https://cloud.google.com/bigquery/pricing
 """
 
 import argparse
@@ -156,24 +163,34 @@ def calculate_avg_slot_concurrency(
 
 
 def calculate_cost_estimates(
-    total_bytes_billed: int, slot_hours: float
+    total_bytes_billed: int,
+    slot_hours: float,
+    ondemand_rate_per_tb: float = 6.25,
+    editions_rate_per_slot_hour: float = 0.06,
 ) -> Tuple[float, float]:
     """Computes dollar cost estimates for both On-Demand and Editions pricing.
 
     Pricing baseline:
-    - On-Demand: $6.25 per TB ($6.25 / 1,099,511,627,776 bytes)
-    - Enterprise Edition equivalence: $0.06 per slot-hour
+    - On-Demand: $6.25 per TB ($6.25 / 1,099,511,627,776 bytes) by default.
+    - Enterprise Edition equivalence: $0.06 per slot-hour by default.
+
+    Note:
+        Pricing rates vary significantly across Google Cloud regions, editions
+        (Standard, Enterprise, Enterprise Plus), and commitment tiers. Refer to
+        official documentation: https://cloud.google.com/bigquery/pricing
 
     Args:
         total_bytes_billed: Total billed bytes scanned.
         slot_hours: Total slot-hours consumed.
+        ondemand_rate_per_tb: Pricing rate in USD per TB scanned (default: 6.25).
+        editions_rate_per_slot_hour: Pricing rate in USD per slot-hour (default: 0.06).
 
     Returns:
         Tuple of (cost_ondemand_usd, cost_editions_usd).
     """
     bytes_per_tb = 1_099_511_627_776.0
-    ondemand_usd = (total_bytes_billed / bytes_per_tb) * 6.25
-    editions_usd = slot_hours * 0.06
+    ondemand_usd = (total_bytes_billed / bytes_per_tb) * ondemand_rate_per_tb
+    editions_usd = slot_hours * editions_rate_per_slot_hour
     return (round(ondemand_usd, 4), round(editions_usd, 4))
 
 
@@ -299,11 +316,17 @@ def detect_unpartitioned_scans(
 # ==============================================================================
 
 
-def parse_job_row(row_data: Dict[str, Any]) -> QueryJobMetrics:
+def parse_job_row(
+    row_data: Dict[str, Any],
+    ondemand_rate_per_tb: float = 6.25,
+    editions_rate_per_slot_hour: float = 0.06,
+) -> QueryJobMetrics:
     """Transforms raw INFORMATION_SCHEMA row dictionary into QueryJobMetrics.
 
     Args:
         row_data: Raw dictionary from INFORMATION_SCHEMA or mock data.
+        ondemand_rate_per_tb: Dollar rate per TB billed (default: 6.25).
+        editions_rate_per_slot_hour: Dollar rate per slot-hour (default: 0.06).
 
     Returns:
         Populated QueryJobMetrics instance.
@@ -373,7 +396,10 @@ def parse_job_row(row_data: Dict[str, Any]) -> QueryJobMetrics:
         total_slot_ms, start_time, end_time
     )
     cost_ondemand, cost_editions = calculate_cost_estimates(
-        total_bytes_billed, slot_hours
+        total_bytes_billed,
+        slot_hours,
+        ondemand_rate_per_tb=ondemand_rate_per_tb,
+        editions_rate_per_slot_hour=editions_rate_per_slot_hour,
     )
 
     # Apply heuristic detections
@@ -642,6 +668,9 @@ def render_table_output(summary: AnalysisSummary, limit: int = 10) -> str:
         buf.write(format_as_ascii_table(rec_headers, rec_rows))
         buf.write("\n")
 
+    buf.write("DISCLAIMER: Cost estimates are indicative baselines and vary by region, edition, and commitments.\n")
+    buf.write("For official pricing details, see: https://cloud.google.com/bigquery/pricing\n")
+
     return buf.getvalue()
 
 
@@ -668,7 +697,15 @@ def render_json_output(summary: AnalysisSummary) -> str:
             "contention_job_count": summary.contention_job_count,
             "cartesian_job_count": summary.cartesian_job_count,
             "unpartitioned_job_count": summary.unpartitioned_job_count,
+            "pricing_disclaimer": (
+                "Cost estimates are indicative baselines and vary by region, edition, "
+                "and commitments. See https://cloud.google.com/bigquery/pricing"
+            ),
         },
+        "pricing_disclaimer": (
+            "Cost estimates are indicative baselines and vary by region, edition, "
+            "and commitments. See https://cloud.google.com/bigquery/pricing"
+        ),
         "recommendations": summary.all_recommendations,
         "top_heavy_jobs": [
             {
@@ -864,6 +901,26 @@ def create_argument_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to write formatted output.",
     )
+    parser.add_argument(
+        "--ondemand-rate",
+        type=float,
+        default=6.25,
+        help=(
+            "On-demand pricing rate in USD per TB (default: 6.25). "
+            "Pricing varies by region, edition, and commitments; see "
+            "https://cloud.google.com/bigquery/pricing"
+        ),
+    )
+    parser.add_argument(
+        "--slot-hour-rate",
+        type=float,
+        default=0.06,
+        help=(
+            "Editions pricing rate in USD per slot-hour (default: 0.06). "
+            "Pricing varies by region, edition, and commitments; see "
+            "https://cloud.google.com/bigquery/pricing"
+        ),
+    )
     return parser
 
 
@@ -910,7 +967,16 @@ def run_analysis(args: argparse.Namespace) -> int:
         return 1
 
     # 4. Processing & Metrics Compilation
-    analyzed_jobs = [parse_job_row(row) for row in raw_rows]
+    ondemand_rate = getattr(args, "ondemand_rate", 6.25)
+    slot_hour_rate = getattr(args, "slot_hour_rate", 0.06)
+    analyzed_jobs = [
+        parse_job_row(
+            row,
+            ondemand_rate_per_tb=ondemand_rate,
+            editions_rate_per_slot_hour=slot_hour_rate,
+        )
+        for row in raw_rows
+    ]
     summary = summarize_analysis(
         jobs=analyzed_jobs,
         project_id=project_id,

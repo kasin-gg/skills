@@ -46,8 +46,8 @@ python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --days 7 --format tab
 # Output structured JSON for programmatically parsing recommendations
 python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --days 7 --format json
 
-# Offline verification mode using synthetic telemetry
-python3 scripts/slot_analyzer.py --mock-data-file tests/mock_data.json --format table
+# Offline verification mode using synthetic or extracted telemetry
+python3 scripts/slot_analyzer.py --mock-data-file path/to/extracted_telemetry.json --format table
 
 # Dry-run mode to inspect regional SQL query
 python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --region region-us --dry-run
@@ -64,6 +64,8 @@ python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --region region-us --
 - `--dry-run`: Display regional SQL without contacting BigQuery.
 - `--mock-data-file`: Path to local JSON file for offline execution.
 - `--output-file`: File path to save output.
+- `--ondemand-rate`: On-demand pricing rate in USD per TB (default: 6.25).
+- `--slot-hour-rate`: Editions pricing rate in USD per slot-hour (default: 0.06).
 
 ---
 
@@ -176,8 +178,9 @@ Before finalizing query rewrites:
    query_job = client.query(optimized_sql, job_config=job_config)
    print(f"Scanned bytes: {query_job.total_bytes_processed / (1024**3):.2f} GB")
    ```
-2. **Offline Unit Testing**:
-   Run the pytest suite to verify parser and heuristic fidelity:
-   ```bash
-   pytest tests/ -v
-   ```
+2. **Skill Evaluation & Offline Validation**:
+   - **Evaluation Suite (`EVAL.txtpb`)**: The skill is validated using the included `EVAL.txtpb` test suite, evaluating diagnostic accuracy against standard intent prompts, slot contention detection, Cartesian join classification, and SQL rewrite heuristics.
+   - **CLI Dry-Run Inspection**: Verify regional SQL query formation and script execution without contacting BigQuery or incurring costs:
+     ```bash
+     python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --region region-us --dry-run
+     ```
