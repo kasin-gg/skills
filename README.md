@@ -99,7 +99,7 @@ repo to install.
   - [**BigFrames (BigQuery DataFrame) basics**](./skills/cloud/bigquery-bigframes)
   - [**BigQuery Asset Impact Analysis**](./skills/cloud/datalineage-bigquery-asset-impact-analysis)
   - [**BigQuery Basics**](./skills/cloud/bigquery-basics)
-  - [**BigQuery Slot & Cost Optimizer**](./skills/cloud/bigquery-slot-cost-optimizer)
+  - [**BigQuery Slot & Cost Optimizer Agent Skill**](./skills/cloud/bigquery-slot-cost-optimizer)
   - [**Bigtable Basics**](./skills/cloud/bigtable-basics)
   - [**Cloud SQL Basics**](./skills/cloud/cloud-sql-basics)
   - [**Data Lineage Summary**](./skills/cloud/datalineage-summary)
