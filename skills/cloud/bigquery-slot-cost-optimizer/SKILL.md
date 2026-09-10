@@ -34,7 +34,48 @@ Activate this skill whenever the user asks to:
 
 ---
 
-## 2. Diagnostic Execution Workflow
+## 2. Prerequisites & Environment Setup
+
+Before executing this skill, ensure the environment is configured with the necessary SDKs, permissions, and billing:
+
+1. **Cloud SDK & Client Library Installation**:
+   - Install the Google Cloud CLI: [Google Cloud SDK Installation Guide](https://cloud.google.com/sdk/docs/install)
+   - Install the BigQuery Python client:
+     ```bash
+     pip install google-cloud-bigquery
+     ```
+
+2. **Project Selection & Billing**:
+   - Set the active project:
+     ```bash
+     gcloud config set project <PROJECT_ID>
+     ```
+   - **Important**: The target Google Cloud project must have an active Cloud Billing account attached.
+
+3. **API Enablement**:
+   - Enable the BigQuery API on the project:
+     ```bash
+     gcloud services enable bigquery.googleapis.com
+     ```
+
+4. **Authentication Setup**:
+   - Authenticate the local gcloud environment and configure Application Default Credentials (ADC):
+     ```bash
+     gcloud auth login
+     gcloud auth application-default login
+     ```
+
+5. **IAM Roles & Permissions**:
+   - The executing principal requires the following minimum IAM roles:
+     - `roles/bigquery.jobUser`: Grants permission to run queries and analyze telemetry.
+     - `roles/bigquery.resourceViewer`: Grants read-only access to query metadata in `INFORMATION_SCHEMA.JOBS_BY_PROJECT` and capacity reservations.
+
+6. **Pricing Reference**:
+   - Cost estimates in this skill are for planning purposes. Reference official [Google Cloud BigQuery Pricing](https://cloud.google.com/bigquery/pricing) for real-time regional rates and reservation commitment pricing.
+
+---
+
+## 3. Diagnostic Execution Workflow
 
 ### Step 1: Execute Automated Telemetry Extraction
 Run `scripts/slot_analyzer.py` to pull and analyze historical query telemetry from `INFORMATION_SCHEMA.JOBS_BY_PROJECT`:
@@ -69,7 +110,7 @@ python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --region region-us --
 
 ---
 
-## 3. Metric Interpretation & Decision Tree
+## 4. Metric Interpretation & Decision Tree
 
 Evaluate the telemetry output using the following decision rules:
 
@@ -78,15 +119,15 @@ Evaluate the telemetry output using the following decision rules:
        |
        +---> If wait_ratio_avg > 0.40 OR slot_contention == TRUE
        |     --> Classify as SLOT STARVATION (Rule SLOT-001)
-       |     --> Jump to Remediation 4.1
+       |     --> Jump to Remediation 5.1
        |
        +---> If shuffle_output_bytes_spilled > 0 OR records_written > 10 * records_read
        |     --> Classify as CARTESIAN EXPLOSION (Rule JOIN-001)
-       |     --> Jump to Remediation 4.2
+       |     --> Jump to Remediation 5.2
        |
        +---> If total_bytes_billed > 10 GB AND no date/partition filters
        |     --> Classify as UNPARTITIONED SCAN (Rule PART-001)
-       |     --> Jump to Remediation 4.3
+       |     --> Jump to Remediation 5.3
        |
        +---> Otherwise
              --> Check BI Engine or Clustering opportunities
@@ -95,9 +136,9 @@ Evaluate the telemetry output using the following decision rules:
 
 ---
 
-## 4. Concrete Remediation Playbooks
+## 5. Concrete Remediation Playbooks
 
-### 4.1 Rule SLOT-001: Slot Contention & Queueing
+### 5.1 Rule SLOT-001: Slot Contention & Queueing
 - **Symptoms**: Stages have high `wait_ratio_avg` (> 40%), `total_slot_ms` is high, but wall-clock time is disproportionately prolonged.
 - **Root Cause**: The query is competing for slots in an oversubscribed on-demand pool or undersized capacity reservation.
 - **Remediation**:
@@ -105,7 +146,7 @@ Evaluate the telemetry output using the following decision rules:
   2. **Stagger Scheduled Queries**: Stagger batch ETL jobs that launch simultaneously at midnight UTC.
   3. **Stage Optimization**: Optimize stages with massive row shuffles to reduce concurrent slot holding time.
 
-### 4.2 Rule JOIN-001: Cartesian & Exploding Joins
+### 5.2 Rule JOIN-001: Cartesian & Exploding Joins
 - **Symptoms**: Output records exceed input records by orders of magnitude; `shuffle_output_bytes_spilled` > 0.
 - **Root Cause**: `CROSS JOIN` or non-unique join keys causing duplicate row generation ($M \times N$ expansion).
 - **Remediation**:
@@ -137,7 +178,7 @@ Evaluate the telemetry output using the following decision rules:
     LEFT JOIN agg_events e ON o.customer_id = e.customer_id;
     ```
 
-### 4.3 Rule PART-001: Unpartitioned Scans & Partition Pruning
+### 5.3 Rule PART-001: Unpartitioned Scans & Partition Pruning
 - **Symptoms**: `total_bytes_billed` > 10 GB scanning historical logs or transaction history.
 - **Root Cause**: Table is unpartitioned or query applies functions that prevent partition pruning.
 - **Remediation**:
@@ -158,7 +199,7 @@ Evaluate the telemetry output using the following decision rules:
 
 ---
 
-## 5. Architectural Reference Links
+## 6. Architectural Reference Links
 
 For deep architectural patterns, DDL examples, and index design:
 - Table Partitioning, Clustering, BI Engine: `references/optimization_rules.md`
@@ -166,7 +207,7 @@ For deep architectural patterns, DDL examples, and index design:
 
 ---
 
-## 6. Verification & Validation Protocol
+## 7. Verification & Validation Protocol
 
 Before finalizing query rewrites:
 1. **Dry-Run Validation**:

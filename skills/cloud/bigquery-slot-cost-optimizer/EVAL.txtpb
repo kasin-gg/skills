@@ -1,0 +1,92 @@
+# proto-file: learning/gemini/agents/evaluation/evalin/proto/eval_suite.proto
+# proto-message: EvalSuite
+# txtpbfmt: wrap_strings_after_newlines
+
+suite_name: "bigquery-slot-cost-optimizer-eval"
+timeout_seconds: 300
+
+cases {
+  name: "diagnose_slot_starvation"
+  prompt:
+    "Our BigQuery analytics dashboard is running extremely slowly during peak hours. "
+    "Queries are taking 10 minutes instead of 30 seconds, and we suspect slot starvation. "
+    "How can we verify this and fix the issue?"
+  expectations:
+    "The response MUST recommend querying INFORMATION_SCHEMA.JOBS_BY_PROJECT or "
+    "JOBS_TIMELINE_BY_* to inspect total_slot_ms and concurrent slot utilization."
+  expectations:
+    "The response MUST calculate slot-hours or analyze concurrent slot demands "
+    "against available baseline slot capacity."
+  expectations:
+    "The response MUST explain how to identify queueing stages or slot contention."
+  expectations:
+    "The response MUST provide actionable mitigations such as allocating capacity "
+    "reservations, configuring slot autoscaling, or reducing peak query concurrency."
+}
+
+cases {
+  name: "detect_cartesian_join_explosion"
+  prompt:
+    "A nightly transformation query started failing with resources exceeded errors "
+    "or running for hours. The query joins three customer activity tables. "
+    "How do we identify if there is a Cartesian product or join explosion, and how do we resolve it?"
+  expectations:
+    "The response MUST instruct checking query execution stage telemetry for "
+    "massive row count explosions where output rows drastically exceed input rows."
+  expectations:
+    "The response MUST check for missing or non-selective join predicates, such as "
+    "unintentional CROSS JOIN or missing ON conditions."
+  expectations:
+    "The response MUST check for memory spillage to persistent storage (shuffle spillage)."
+  expectations:
+    "The response MUST recommend pre-aggregating dimensional data before joining or "
+    "enforcing distinct key constraints to eliminate row multiplication."
+}
+
+cases {
+  name: "eliminate_unpartitioned_full_table_scans"
+  prompt:
+    "Our monthly BigQuery billing increased by 300% due to on-demand query costs. "
+    "How do we identify queries performing unpartitioned full table scans, and how do we enforce partition filters?"
+  expectations:
+    "The response MUST inspect total_bytes_billed and total_bytes_processed in "
+    "INFORMATION_SCHEMA.JOBS_BY_PROJECT."
+  expectations:
+    "The response MUST explain how to verify whether referenced tables have date, "
+    "timestamp, or integer-range partitioning."
+  expectations:
+    "The response MUST recommend enabling require_partition_filter = TRUE on large tables "
+    "to block accidental full table scans."
+  expectations:
+    "The response MUST recommend clustering on high-cardinality filtering and grouping columns."
+}
+
+cases {
+  name: "run_slot_analyzer_cli_telemetry"
+  prompt:
+    "How do I run the slot_analyzer.py diagnostic utility to analyze BigQuery slot "
+    "consumption for my project 'fintech-analytics-prod' in the 'us-central1' region over the last 14 days?"
+  expectations:
+    "The response MUST specify `--project-id fintech-analytics-prod` (or `--project`)."
+  expectations:
+    "The response MUST specify `--region region-us` or `us-central1`."
+  expectations:
+    "The response MUST specify `--days 14`."
+  expectations:
+    "The response MUST mention the `--format table` or `--format json` output options."
+}
+
+cases {
+  name: "bi_engine_and_materialized_views_acceleration"
+  prompt:
+    "We have frequent sub-second dashboard queries in Looker querying the same summary metrics. "
+    "How should we architect BigQuery caching and materialized views to minimize slot usage?"
+  expectations:
+    "The response MUST recommend BigQuery BI Engine in-memory acceleration for low-latency dashboarding."
+  expectations:
+    "The response MUST recommend Materialized Views with smart query rewrite enabled."
+  expectations:
+    "The response MUST advise aligning partitioning between the materialized view and underlying base table."
+  expectations:
+    "The response MUST NOT suggest disabling query cache."
+}
