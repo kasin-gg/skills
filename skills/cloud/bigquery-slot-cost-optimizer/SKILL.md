@@ -1,9 +1,9 @@
 ---
 name: bigquery-slot-cost-optimizer
 description: >-
-  Analyzes Google Cloud BigQuery slot consumption, compute costs, and execution
-  bottlenecks using INFORMATION_SCHEMA. Detects slot contention, unpartitioned
-  table scans, and Cartesian join explosions, providing concrete SQL rewrite
+  Analyzes Google Cloud BigQuery slot consumption, query costs, and execution
+  bottlenecks using INFORMATION_SCHEMA. Helps detect slot contention, unpartitioned
+  table scans, and Cartesian joins, providing concrete SQL rewrite
   and architecture optimization recommendations.
 license: Apache-2.0
 metadata:
@@ -18,11 +18,11 @@ metadata:
     - sql
 ---
 
-# BigQuery Slot & Cost Optimizer Agent Skill
+# BigQuery slot and cost optimizer agent skill
 
-This skill equips AI agents and cloud engineers with procedural heuristics to analyze BigQuery resource consumption, compute slot-hours, identify slot starvation, eliminate Cartesian join explosions, and resolve unpartitioned table scans.
+This skill equips AI agents and cloud engineers with procedural heuristics to analyze BigQuery resource consumption, calculate slot-hours, identify slot contention and queueing, mitigate Cartesian joins, and optimize unpartitioned table scans.
 
-## 1. Trigger Conditions & Intent Mapping
+## Trigger conditions and intent mapping
 
 Activate this skill whenever the user asks to:
 - "Optimize BigQuery query performance or reduce slot usage"
@@ -32,52 +32,54 @@ Activate this skill whenever the user asks to:
 - "Detect Cartesian joins or row count explosions in BigQuery"
 - "Identify unpartitioned table scans or missing partition filters"
 
----
-
-## 2. Prerequisites & Environment Setup
+## Prerequisites and environment setup
 
 Before executing this skill, ensure the environment is configured with the necessary SDKs, permissions, and billing:
 
-1. **Cloud SDK & Client Library Installation**:
+1. **Cloud SDK and client library installation**:
    - Install the Google Cloud CLI: [Google Cloud SDK Installation Guide](https://cloud.google.com/sdk/docs/install)
    - Install the BigQuery Python client:
+
      ```bash
      pip install google-cloud-bigquery
      ```
 
-2. **Project Selection & Billing**:
+1. **Project selection and billing**:
    - Set the active project:
+
      ```bash
      gcloud config set project <PROJECT_ID>
      ```
-   - **Important**: The target Google Cloud project must have an active Cloud Billing account attached.
 
-3. **API Enablement**:
+   - **Important**: the target Google Cloud project must have an active Cloud Billing account attached.
+
+1. **API enablement**:
    - Enable the BigQuery API on the project:
+
      ```bash
      gcloud services enable bigquery.googleapis.com
      ```
 
-4. **Authentication Setup**:
+1. **Authentication setup**:
    - Authenticate the local gcloud environment and configure Application Default Credentials (ADC):
+
      ```bash
      gcloud auth login
      gcloud auth application-default login
      ```
 
-5. **IAM Roles & Permissions**:
+1. **IAM roles and permissions**:
    - The executing principal requires the following minimum IAM roles:
-     - `roles/bigquery.jobUser`: Grants permission to run queries and analyze telemetry.
-     - `roles/bigquery.resourceViewer`: Grants read-only access to query metadata in `INFORMATION_SCHEMA.JOBS_BY_PROJECT` and capacity reservations.
+     - `roles/bigquery.jobUser`: grants permission to run queries and analyze telemetry.
+     - `roles/bigquery.resourceViewer`: grants read-only access to query metadata in `INFORMATION_SCHEMA.JOBS_BY_PROJECT` and capacity reservations.
 
-6. **Pricing Reference**:
+1. **Pricing reference**:
    - Cost estimates in this skill are for planning purposes. Reference official [Google Cloud BigQuery Pricing](https://cloud.google.com/bigquery/pricing) for real-time regional rates and reservation commitment pricing.
 
----
+## Diagnostic execution workflow
 
-## 3. Diagnostic Execution Workflow
+### Execute automated telemetry extraction
 
-### Step 1: Execute Automated Telemetry Extraction
 Run `scripts/slot_analyzer.py` to pull and analyze historical query telemetry from `INFORMATION_SCHEMA.JOBS_BY_PROJECT`:
 
 ```bash
@@ -94,23 +96,22 @@ python3 scripts/slot_analyzer.py --mock-data-file path/to/extracted_telemetry.js
 python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --region region-us --dry-run
 ```
 
-#### Supported CLI Flags
-- `--project` / `--project-id`: Target Google Cloud project identifier.
-- `--region`: Regional qualifier (e.g. `region-us`, `region-eu`, `us-central1`).
-- `--days`: Lookback interval in days (1 to 30, default: 7).
-- `--mode`: Analysis focus (`slots`, `cost`, `bottlenecks`, `all`).
-- `--limit`: Maximum number of queries displayed (default: 10).
-- `--format`: Output format (`table`, `json`, `csv`).
-- `--threshold-slot-hours`: Minimum slot-hours threshold to flag query (default: 0.5).
-- `--dry-run`: Display regional SQL without contacting BigQuery.
-- `--mock-data-file`: Path to local JSON file for offline execution.
-- `--output-file`: File path to save output.
-- `--ondemand-rate`: On-demand pricing rate in USD per TB (default: 6.25).
-- `--slot-hour-rate`: Editions pricing rate in USD per slot-hour (default: 0.06).
+#### Supported CLI flags
 
----
+- `--project` / `--project-id`: target Google Cloud project identifier.
+- `--region`: regional qualifier (e.g. `region-us`, `region-eu`, `us-central1`).
+- `--days`: lookback interval in days (1 to 30, default: 7).
+- `--mode`: analysis focus (`slots`, `cost`, `bottlenecks`, `all`).
+- `--limit`: maximum number of queries displayed (default: 10).
+- `--format`: output format (`table`, `json`, `csv`).
+- `--threshold-slot-hours`: minimum slot-hours threshold to flag query (default: 0.5).
+- `--dry-run`: display regional SQL without contacting BigQuery.
+- `--mock-data-file`: path to local JSON file for offline execution.
+- `--output-file`: file path to save output.
+- `--ondemand-rate`: on-demand pricing rate in USD per TB (default: 6.25).
+- `--slot-hour-rate`: editions pricing rate in USD per slot-hour (default: 0.06).
 
-## 4. Metric Interpretation & Decision Tree
+## Metric interpretation and decision tree
 
 Evaluate the telemetry output using the following decision rules:
 
@@ -118,46 +119,49 @@ Evaluate the telemetry output using the following decision rules:
 [Query Telemetry Analyzed]
        |
        +---> If wait_ratio_avg > 0.40 OR slot_contention == TRUE
-       |     --> Classify as SLOT STARVATION (Rule SLOT-001)
-       |     --> Jump to Remediation 5.1
+       |     --> Classify as slot contention and queueing (Rule SLOT-001)
+       |     --> Jump to Rule SLOT-001
        |
        +---> If shuffle_output_bytes_spilled > 0 OR records_written > 10 * records_read
-       |     --> Classify as CARTESIAN EXPLOSION (Rule JOIN-001)
-       |     --> Jump to Remediation 5.2
+       |     --> Classify as Cartesian join (Rule JOIN-001)
+       |     --> Jump to Rule JOIN-001
        |
        +---> If total_bytes_billed > 10 GB AND no date/partition filters
-       |     --> Classify as UNPARTITIONED SCAN (Rule PART-001)
-       |     --> Jump to Remediation 5.3
+       |     --> Classify as unpartitioned scan (Rule PART-001)
+       |     --> Jump to Rule PART-001
        |
        +---> Otherwise
-             --> Check BI Engine or Clustering opportunities
+             --> Check BI Engine or clustering opportunities
              --> See references/optimization_rules.md
 ```
 
----
+## Concrete remediation playbooks
 
-## 5. Concrete Remediation Playbooks
+### Rule SLOT-001: slot contention and queueing
 
-### 5.1 Rule SLOT-001: Slot Contention & Queueing
-- **Symptoms**: Stages have high `wait_ratio_avg` (> 40%), `total_slot_ms` is high, but wall-clock time is disproportionately prolonged.
-- **Root Cause**: The query is competing for slots in an oversubscribed on-demand pool or undersized capacity reservation.
+- **Symptoms**: stages have high `wait_ratio_avg` (> 40%), `total_slot_ms` is high, but wall-clock time is disproportionately prolonged.
+- **Root cause**: the query is competing for slots in an oversubscribed on-demand pool or undersized capacity reservation.
 - **Remediation**:
-  1. **Slot Sizing**: In Editions (Standard, Enterprise, Enterprise Plus), configure baseline slots with an autoscaling ceiling to accommodate burst workloads.
-  2. **Stagger Scheduled Queries**: Stagger batch ETL jobs that launch simultaneously at midnight UTC.
-  3. **Stage Optimization**: Optimize stages with massive row shuffles to reduce concurrent slot holding time.
+  1. **Slot sizing**: in Editions (Standard, Enterprise, Enterprise Plus), configure baseline slots with an autoscaling ceiling to accommodate burst workloads.
+  1. **Stagger scheduled queries**: stagger batch ETL jobs that launch simultaneously at midnight UTC.
+  1. **Stage optimization**: optimize stages with massive row shuffles to reduce concurrent slot holding time.
 
-### 5.2 Rule JOIN-001: Cartesian & Exploding Joins
-- **Symptoms**: Output records exceed input records by orders of magnitude; `shuffle_output_bytes_spilled` > 0.
-- **Root Cause**: `CROSS JOIN` or non-unique join keys causing duplicate row generation ($M \times N$ expansion).
+### Rule JOIN-001: Cartesian and exploding joins
+
+- **Symptoms**: output records exceed input records by orders of magnitude; `shuffle_output_bytes_spilled` > 0.
+- **Root cause**: `CROSS JOIN` or non-unique join keys causing duplicate row generation ($M \times N$ expansion).
 - **Remediation**:
   - **Antipattern**:
+
     ```sql
     SELECT *
     FROM `orders` o
     CROSS JOIN `web_events` e
     WHERE o.customer_id = e.customer_id;
     ```
+
   - **Optimized SQL**:
+
     ```sql
     -- Replace with qualified inner or left equi-join
     SELECT o.order_id, o.total_amount, e.event_name
@@ -165,8 +169,10 @@ Evaluate the telemetry output using the following decision rules:
     INNER JOIN `web_events` e
       ON o.customer_id = e.customer_id;
     ```
-  - **Pre-Aggregation Pattern**:
+
+  - **Pre-aggregation pattern**:
     When joining two child tables on a shared parent key, aggregate dimensions before joining:
+
     ```sql
     WITH agg_events AS (
       SELECT customer_id, COUNT(*) AS event_count
@@ -178,16 +184,20 @@ Evaluate the telemetry output using the following decision rules:
     LEFT JOIN agg_events e ON o.customer_id = e.customer_id;
     ```
 
-### 5.3 Rule PART-001: Unpartitioned Scans & Partition Pruning
+### Rule PART-001: unpartitioned scans and partition pruning
+
 - **Symptoms**: `total_bytes_billed` > 10 GB scanning historical logs or transaction history.
-- **Root Cause**: Table is unpartitioned or query applies functions that prevent partition pruning.
+- **Root cause**: table is unpartitioned or query applies functions that prevent partition pruning.
 - **Remediation**:
-  - **Partition Table DDL**:
+  - **Partition table DDL**:
+
     ```sql
     ALTER TABLE `ecommerce.orders`
     SET OPTIONS (require_partition_filter = TRUE);
     ```
-  - **Avoid Function Wrappers in Predicates**:
+
+  - **Avoid function wrappers in predicates**:
+
     ```sql
     -- BAD: Scans entire table because function wraps partitioned column
     WHERE DATE(order_timestamp) = '2026-03-01';
@@ -197,31 +207,33 @@ Evaluate the telemetry output using the following decision rules:
       AND order_timestamp < '2026-03-02 00:00:00 UTC';
     ```
 
----
-
-## 6. Architectural Reference Links
+## Architectural reference links
 
 For deep architectural patterns, DDL examples, and index design:
-- Table Partitioning, Clustering, BI Engine: `references/optimization_rules.md`
-- BigQuery Search Indexes & Materialized Views: `references/optimization_rules.md`
+- Table partitioning, clustering, BI Engine: `references/optimization_rules.md`
+- BigQuery search indexes and materialized views: `references/optimization_rules.md`
 
----
-
-## 7. Verification & Validation Protocol
+## Verification and validation protocol
 
 Before finalizing query rewrites:
-1. **Dry-Run Validation**:
-   Validate query syntax and calculate estimated bytes scanned without incurring cost:
-   ```python
-   from google.cloud import bigquery
-   client = bigquery.Client()
-   job_config = bigquery.QueryJobConfig(dry_run=True, use_query_cache=False)
-   query_job = client.query(optimized_sql, job_config=job_config)
-   print(f"Scanned bytes: {query_job.total_bytes_processed / (1024**3):.2f} GB")
-   ```
-2. **Skill Evaluation & Offline Validation**:
-   - **Evaluation Suite (`EVAL.txtpb`)**: The skill is validated using the included `EVAL.txtpb` test suite, evaluating diagnostic accuracy against standard intent prompts, slot contention detection, Cartesian join classification, and SQL rewrite heuristics.
-   - **CLI Dry-Run Inspection**: Verify regional SQL query formation and script execution without contacting BigQuery or incurring costs:
-     ```bash
-     python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --region region-us --dry-run
-     ```
+
+### Dry-run validation
+
+Validate query syntax and calculate estimated bytes scanned without incurring cost:
+
+```python
+from google.cloud import bigquery
+client = bigquery.Client()
+job_config = bigquery.QueryJobConfig(dry_run=True, use_query_cache=False)
+query_job = client.query(optimized_sql, job_config=job_config)
+print(f"Scanned bytes: {query_job.total_bytes_processed / (1024**3):.2f} GB")
+```
+
+### Skill evaluation and offline validation
+
+- **Evaluation suite (`EVAL.txtpb`)**: the skill is validated using the included `EVAL.txtpb` test suite, evaluating diagnostic accuracy against standard intent prompts, slot contention detection, Cartesian join classification, and SQL rewrite heuristics.
+- **CLI dry-run inspection**: verify regional SQL query formation and script execution without contacting BigQuery or incurring costs:
+
+  ```bash
+  python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --region region-us --dry-run
+  ```

@@ -5,9 +5,6 @@
 This repository contains [Agent Skills](https://agentskills.io/home) for Google
 products and technologies, including [Google Cloud](https://cloud.google.com).
 
-> [!NOTE]
-> This repository is under active development.
-
 ## Installation
 
 ```bash
@@ -99,10 +96,11 @@ repo to install.
   - [**BigFrames (BigQuery DataFrame) basics**](./skills/cloud/bigquery-bigframes)
   - [**BigQuery Asset Impact Analysis**](./skills/cloud/datalineage-bigquery-asset-impact-analysis)
   - [**BigQuery Basics**](./skills/cloud/bigquery-basics)
-  - [**BigQuery Slot & Cost Optimizer Agent Skill**](./skills/cloud/bigquery-slot-cost-optimizer)
+  - [**BigQuery slot and cost optimizer agent skill**](./skills/cloud/bigquery-slot-cost-optimizer)
   - [**Bigtable Basics**](./skills/cloud/bigtable-basics)
   - [**Cloud SQL Basics**](./skills/cloud/cloud-sql-basics)
   - [**Data Lineage Summary**](./skills/cloud/datalineage-summary)
+  - [**dbt Snowflake to BigQuery Translator**](./skills/cloud/dbt-sf-to-bq-translator)
   - [**GCP Managed Airflow DAG Authoring Guide**](./skills/cloud/managed-airflow-dag-authoring)
   - [**Google Cloud Database Onboarding Skill**](./skills/cloud/cloud-databases-onboarding)
   - [**Managed Service for Apache Airflow (formerly Cloud Composer) DAG troubleshooting guide**](./skills/cloud/managed-airflow-dag-troubleshooting)
