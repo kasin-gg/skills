@@ -2,6 +2,15 @@
 
 This reference catalog documents concrete optimization heuristics, architectural rules, and SQL rewrite patterns for Google Cloud BigQuery workloads. It is used by both automated diagnostic engines and human practitioners to resolve query bottlenecks and reduce query costs.
 
+## Table of contents
+
+- [Partitioning optimization](#partitioning-optimization): lines 14-69
+- [Multi-column clustering optimization](#multi-column-clustering-optimization): lines 70-102
+- [BI Engine in-memory acceleration](#bi-engine-in-memory-acceleration): lines 103-122
+- [BigQuery search indexes](#bigquery-search-indexes): lines 123-156
+- [Materialized views and transparent query rewriting](#materialized-views-and-transparent-query-rewriting): lines 157-182
+- [Join optimization and data skew mitigation](#join-optimization-and-data-skew-mitigation): lines 183-240
+
 ## Partitioning optimization
 
 Table partitioning divides large tables into smaller segments, significantly reducing bytes scanned and slot consumption by pruning unneeded partitions at query planning time.
