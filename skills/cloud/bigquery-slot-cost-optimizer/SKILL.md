@@ -20,7 +20,7 @@ metadata:
 
 # BigQuery slot and cost optimizer agent skill
 
-This skill equips AI agents and cloud engineers with procedural heuristics to analyze BigQuery resource consumption, calculate slot-hours, identify slot contention and queueing, mitigate Cartesian joins, and optimize unpartitioned table scans.
+This skill equips AI agents and cloud engineers with procedural heuristics to analyze BigQuery resource consumption, calculate slot hours, identify slot contention and queueing, mitigate Cartesian joins, and optimize unpartitioned table scans.
 
 ## Trigger conditions and intent mapping
 
@@ -104,12 +104,12 @@ python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --region region-us --
 - `--mode`: analysis focus (`slots`, `cost`, `bottlenecks`, `all`).
 - `--limit`: maximum number of queries displayed (default: 10).
 - `--format`: output format (`table`, `json`, `csv`).
-- `--threshold-slot-hours`: minimum slot-hours threshold to flag query (default: 0.5).
+- `--threshold-slot-hours`: minimum slot-hour threshold to flag query (default: 0.5).
 - `--dry-run`: display regional SQL without contacting BigQuery.
 - `--mock-data-file`: path to local JSON file for offline execution.
 - `--output-file`: file path to save output.
 - `--ondemand-rate`: on-demand pricing rate in USD per TB (default: 6.25).
-- `--slot-hour-rate`: editions pricing rate in USD per slot-hour (default: 0.06).
+- `--slot-hour-rate`: editions pricing rate in USD per slot hour (default: 0.06).
 
 ## Metric interpretation and decision tree
 

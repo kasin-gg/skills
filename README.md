@@ -50,10 +50,10 @@ repo to install.
   - [**Gemini API in Agent Platform**](./skills/cloud/gemini-api)
   - [**Gemini Enterprise Agent Platform - Managed Agents API Skill**](./skills/cloud/gemini-agents-api)
   - [**Gemini Interactions API Skill**](./skills/cloud/gemini-interactions-api)
-  - [**Genkit Dart**](./skills/cloud/genkit-dart)
-  - [**Genkit Go**](./skills/cloud/genkit-go)
-  - [**Genkit JS**](./skills/cloud/genkit-js)
-  - [**Genkit Python**](./skills/cloud/genkit-python)
+  - [**Genkit Dart**](./skills/cloud/developing-genkit-dart)
+  - [**Genkit Go**](./skills/cloud/developing-genkit-go)
+  - [**Genkit JS**](./skills/cloud/developing-genkit-js)
+  - [**Genkit Python**](./skills/cloud/developing-genkit-python)
   - [**LiveAPI Service Skill**](./skills/cloud/gemini-live-api)
   - [**Migrating from Gemini API in AI Studio to Agent Platform**](./skills/cloud/agent-platform-migrate-from-ai-studio)
   - [**Skill Registry**](./skills/cloud/agent-platform-skill-registry)
@@ -146,6 +146,7 @@ repo to install.
   - [**Privileged Access Manager (PAM)**](./skills/cloud/iam-helper-for-privileged-access-management)
   - [**SecOps Detection Coverage Skill**](./skills/cloud/detection-engineering-coverage-evaluation)
 - **Web and app hosting**
+  - [**Cloud Run Alert Configuration**](./skills/cloud/cloud-run-alert-configuration)
   - [**Cloud Run Basics**](./skills/cloud/cloud-run-basics)
   - [**Firebase Basics**](./skills/cloud/firebase-basics)
 - **Advertising**
