@@ -295,15 +295,29 @@ def detect_unpartitioned_scans(
     ten_gb = 10 * 1024 * 1024 * 1024
 
     if total_bytes_billed >= ten_gb:
-        # Check for presence of common partition pruning patterns
-        partition_filter_pattern = re.compile(
-            r"(?i)(?:_PARTITIONDATE|_PARTITIONTIME|DATE\s*\(|TIMESTAMP\s*\(|TIMESTAMP_TRUNC|DATE_TRUNC)\b"
-        )
+        scanned_gb = total_bytes_billed / (1024 * 1024 * 1024)
         has_where = bool(re.search(r"(?i)\bWHERE\b", query_text))
-        has_partition_keyword = bool(partition_filter_pattern.search(query_text))
 
-        if not has_where or not has_partition_keyword:
-            scanned_gb = total_bytes_billed / (1024 * 1024 * 1024)
+        # Flag function wrappers on columns in WHERE clause (e.g., WHERE DATE(order_timestamp) = ...)
+        # which invalidate BigQuery partition pruning
+        function_wrapper_antipattern = re.compile(
+            r"(?i)\bWHERE\b[\s\S]*?\b(?:DATE|TIMESTAMP|DATETIME|EXTRACT)\s*\(\s*[a-zA-Z_][a-zA-Z0-9_.]*\s*\)\s*(?:=|<|>|<=|>=|\bBETWEEN\b|\bIN\b)"
+        )
+        # Recognize valid direct partition pruning comparisons (pseudo-columns, direct date/timestamp
+        # column comparisons, or comparisons against date/timestamp literals and functions on RHS)
+        valid_partition_filter_pattern = re.compile(
+            r"(?i)\bWHERE\b[\s\S]*?(?:"
+            r"\b(?:_PARTITIONDATE|_PARTITIONTIME)\b"
+            r"|(?:[a-zA-Z_][a-zA-Z0-9_.]*(?:date|time|ts|day|partition|created|updated)[a-zA-Z0-9_]*)\s*(?:=|<|>|<=|>=|\bBETWEEN\b|\bIN\b)"
+            r"|(?:=|<|>|<=|>=|\bBETWEEN\b)\s*(?:DATE|TIMESTAMP|DATETIME|CURRENT_DATE|CURRENT_TIMESTAMP|TIMESTAMP_SUB|DATE_SUB|TIMESTAMP_TRUNC|DATE_TRUNC|'\d{4}-\d{2}-\d{2})"
+            r")"
+        )
+
+        if has_where and function_wrapper_antipattern.search(query_text):
+            reasons.append(
+                f"Scanned {scanned_gb:.1f} GB with function wrapper on date/timestamp column in WHERE clause, preventing partition pruning."
+            )
+        elif not has_where or not valid_partition_filter_pattern.search(query_text):
             reasons.append(
                 f"Scanned {scanned_gb:.1f} GB without detectable partition filter."
             )
@@ -488,6 +502,7 @@ def summarize_analysis(
     region: str,
     lookback_days: int,
     threshold_slot_hours: float = 0.5,
+    mode: str = "all",
 ) -> AnalysisSummary:
     """Compiles aggregate summary and ranks top resource consumers.
 
@@ -497,6 +512,7 @@ def summarize_analysis(
         region: Regional qualifier.
         lookback_days: Evaluation window in days.
         threshold_slot_hours: Slot-hours threshold for flagging heavy queries.
+        mode: Focus area ('slots', 'cost', 'bottlenecks', 'all').
 
     Returns:
         Compiled AnalysisSummary instance.
@@ -520,9 +536,26 @@ def summarize_analysis(
             elif r.get("rule_id") == "PART-001":
                 unpartitioned_count += 1
 
-    # Filter top heavy jobs by slot consumption
-    heavy_jobs = [j for j in jobs if j.slot_hours >= threshold_slot_hours]
-    heavy_jobs.sort(key=lambda x: x.slot_hours, reverse=True)
+    # Filter and rank top heavy jobs according to active analysis mode
+    if mode == "cost":
+        heavy_jobs = sorted(
+            jobs,
+            key=lambda x: max(x.estimated_cost_usd_ondemand, x.estimated_cost_usd_editions),
+            reverse=True,
+        )
+    elif mode == "bottlenecks":
+        bottlenecked = [j for j in jobs if j.bottlenecks]
+        heavy_jobs = sorted(
+            bottlenecked if bottlenecked else jobs,
+            key=lambda x: (len(x.bottlenecks), x.slot_hours),
+            reverse=True,
+        )
+    else:
+        # 'slots' or 'all'
+        heavy_jobs = [j for j in jobs if j.slot_hours >= threshold_slot_hours]
+        if not heavy_jobs:
+            heavy_jobs = list(jobs)
+        heavy_jobs.sort(key=lambda x: x.slot_hours, reverse=True)
 
     return AnalysisSummary(
         project_id=project_id,
@@ -535,7 +568,7 @@ def summarize_analysis(
         contention_job_count=contention_count,
         cartesian_job_count=cartesian_count,
         unpartitioned_job_count=unpartitioned_count,
-        top_heavy_jobs=heavy_jobs if heavy_jobs else sorted(jobs, key=lambda x: x.slot_hours, reverse=True),
+        top_heavy_jobs=heavy_jobs,
         all_recommendations=all_recommendations,
     )
 
@@ -618,12 +651,15 @@ def format_as_ascii_table(headers: List[str], rows: List[List[Any]]) -> str:
     return f"{header_line}\n{separator_line}\n" + "\n".join(row_lines)
 
 
-def render_table_output(summary: AnalysisSummary, limit: int = 10) -> str:
+def render_table_output(
+    summary: AnalysisSummary, limit: int = 10, mode: str = "all"
+) -> str:
     """Renders comprehensive terminal table report.
 
     Args:
         summary: AnalysisSummary object.
         limit: Maximum number of rows to display.
+        mode: Focus area ('slots', 'cost', 'bottlenecks', 'all').
 
     Returns:
         Formatted text report.
@@ -632,13 +668,21 @@ def render_table_output(summary: AnalysisSummary, limit: int = 10) -> str:
     buf.write("==============================================================================\n")
     buf.write("                  BIGQUERY SLOT & COST OPTIMIZER REPORT                       \n")
     buf.write("==============================================================================\n")
-    buf.write(f"Project: {summary.project_id} | Region: {summary.region} | Window: Last {summary.lookback_days} days\n")
+    buf.write(
+        f"Project: {summary.project_id} | Region: {summary.region} | "
+        f"Window: Last {summary.lookback_days} days | Focus Mode: {mode.upper()}\n"
+    )
     buf.write(f"Queries Analyzed: {summary.total_jobs_analyzed} | Total Slot-Hours: {summary.total_slot_hours_consumed:.2f}\n")
     buf.write(f"Estimated Cost (On-Demand): ${summary.total_cost_usd_ondemand:.2f} | (Editions): ${summary.total_cost_usd_editions:.2f}\n")
     buf.write(f"Bottlenecks Detected: Contention: {summary.contention_job_count} | Cartesian: {summary.cartesian_job_count} | Unpartitioned: {summary.unpartitioned_job_count}\n")
     buf.write("------------------------------------------------------------------------------\n\n")
 
-    buf.write("TOP COMPUTE-INTENSIVE QUERIES:\n")
+    if mode == "cost":
+        buf.write("TOP COST-INTENSIVE QUERIES:\n")
+    elif mode == "bottlenecks":
+        buf.write("TOP BOTTLENECKED QUERIES:\n")
+    else:
+        buf.write("TOP COMPUTE-INTENSIVE QUERIES:\n")
     headers = ["Job ID", "Slot-Hours", "Avg Slots", "Cost (OD)", "Cost (Ed)", "Bottlenecks"]
     rows = []
     for job in summary.top_heavy_jobs[:limit]:
@@ -977,12 +1021,14 @@ def run_analysis(args: argparse.Namespace) -> int:
         )
         for row in raw_rows
     ]
+    analysis_mode = getattr(args, "mode", "all")
     summary = summarize_analysis(
         jobs=analyzed_jobs,
         project_id=project_id,
         region=region,
         lookback_days=args.days,
         threshold_slot_hours=args.threshold_slot_hours,
+        mode=analysis_mode,
     )
 
     # 5. Output rendering
@@ -991,7 +1037,7 @@ def run_analysis(args: argparse.Namespace) -> int:
     elif args.format == "csv":
         rendered = render_csv_output(summary)
     else:
-        rendered = render_table_output(summary, limit=args.limit)
+        rendered = render_table_output(summary, limit=args.limit, mode=analysis_mode)
 
     if args.output_file:
         try:

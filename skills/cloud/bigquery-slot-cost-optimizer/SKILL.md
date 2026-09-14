@@ -2,9 +2,11 @@
 name: bigquery-slot-cost-optimizer
 description: >-
   Analyzes Google Cloud BigQuery slot consumption, query costs, and execution
-  bottlenecks using INFORMATION_SCHEMA. Helps detect slot contention, unpartitioned
-  table scans, and Cartesian joins, providing concrete SQL rewrite
-  and architecture optimization recommendations.
+  bottlenecks using INFORMATION_SCHEMA. Use when diagnosing slow BigQuery queries,
+  slot starvation, high on-demand query costs, unpartitioned table scans, or join
+  performance issues. Don't use for generic BigQuery administration (use
+  bigquery-basics), BigQuery ML (use bigquery-ai-ml), or DataFrame operations
+  (use bigquery-bigframes).
 license: Apache-2.0
 metadata:
   version: 1.0.0
@@ -18,7 +20,7 @@ metadata:
     - sql
 ---
 
-# BigQuery slot and cost optimizer agent skill
+# BigQuery slot and cost optimizer
 
 This skill equips AI agents and cloud engineers with procedural heuristics to analyze BigQuery resource consumption, calculate slot hours, identify slot contention and queueing, mitigate Cartesian joins, and optimize unpartitioned table scans.
 
@@ -210,8 +212,8 @@ Evaluate the telemetry output using the following decision rules:
 ## Architectural reference links
 
 For deep architectural patterns, DDL examples, and index design:
-- Table partitioning, clustering, BI Engine: `references/optimization_rules.md`
-- BigQuery search indexes and materialized views: `references/optimization_rules.md`
+- Table partitioning, clustering, BI Engine: [optimization rules](references/optimization_rules.md)
+- BigQuery search indexes and materialized views: [optimization rules](references/optimization_rules.md)
 
 ## Verification and validation protocol
 
