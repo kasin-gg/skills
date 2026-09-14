@@ -8,9 +8,9 @@ This reference catalog documents concrete optimization heuristics, architectural
 - [Multi-column clustering optimization](#multi-column-clustering-optimization): lines 71-103
 - [BI Engine in-memory acceleration](#bi-engine-in-memory-acceleration): lines 104-123
 - [BigQuery search indexes](#bigquery-search-indexes): lines 124-157
-- [Materialized views and transparent query rewriting](#materialized-views-and-transparent-query-rewriting): lines 158-183
-- [Join optimization and data skew mitigation](#join-optimization-and-data-skew-mitigation): lines 184-241
-- [Official BigQuery documentation links for progressive disclosure](#official-bigquery-documentation-links-for-progressive-disclosure): lines 242-252
+- [Materialized views and transparent query rewriting](#materialized-views-and-transparent-query-rewriting): lines 158-184
+- [Join optimization and data skew mitigation](#join-optimization-and-data-skew-mitigation): lines 185-242
+- [Official BigQuery documentation links for progressive disclosure](#official-bigquery-documentation-links-for-progressive-disclosure): lines 243-253
 
 ## Partitioning optimization
 
@@ -164,6 +164,7 @@ Materialized views periodically pre-compute and store aggregated result sets wit
 A major architectural advantage in BigQuery is transparent query rewriting:
 - Even if a user query targets the raw base table, the BigQuery optimizer inspects matching materialized views.
 - If the view covers the requested dimensions and metrics, BigQuery automatically reroutes the query to scan the pre-computed materialized view!
+- **Partition alignment**: always align the partitioning column and granularity of a materialized view with its underlying base table (e.g., `PARTITION BY DATE(order_timestamp)`) to maximize incremental refresh efficiency and avoid full view recomputation.
 
 Example DDL:
 

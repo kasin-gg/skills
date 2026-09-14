@@ -98,20 +98,7 @@ python3 scripts/slot_analyzer.py --mock-data-file path/to/extracted_telemetry.js
 python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --region region-us --dry-run
 ```
 
-#### Supported CLI flags
-
-- `--project` / `--project-id`: target Google Cloud project identifier.
-- `--region`: regional qualifier (e.g. `region-us`, `region-eu`, `us-central1`).
-- `--days`: lookback interval in days (1 to 30, default: 7).
-- `--mode`: analysis focus (`slots`, `cost`, `bottlenecks`, `all`).
-- `--limit`: maximum number of queries displayed (default: 10).
-- `--format`: output format (`table`, `json`, `csv`).
-- `--threshold-slot-hours`: minimum slot-hour threshold to flag query (default: 0.5).
-- `--dry-run`: display regional SQL without contacting BigQuery.
-- `--mock-data-file`: path to local JSON file for offline execution.
-- `--output-file`: file path to save output.
-- `--ondemand-rate`: on-demand pricing rate in USD per TB (default: 6.25).
-- `--slot-hour-rate`: editions pricing rate in USD per slot hour (default: 0.06).
+Run `python3 scripts/slot_analyzer.py --help` to inspect all supported CLI flags, focus modes (`--mode`), and configurable pricing rate arguments.
 
 ## Metric interpretation and decision tree
 
