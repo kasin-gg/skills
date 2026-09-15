@@ -244,9 +244,9 @@ When a join key has heavy key concentration (e.g. `customer_id IS NULL` or `cust
 
 To optimize token usage and ensure access to the latest syntax and limits without loading all documentation at once, load the following official Google Cloud markdown (`.md.txt`) documentation pages on demand when deeper details are required:
 
-- **Partitioned tables (`https://cloud.google.com/bigquery/docs/partitioned-tables.md.txt`)**: load when designing partition expiration policies, integer-range partitioning boundaries, or troubleshooting partition pruning edge cases.
-- **Clustered tables (`https://cloud.google.com/bigquery/docs/clustered-tables.md.txt`)**: load when evaluating automatic re-clustering behavior or multi-column block pruning mechanics.
-- **BI Engine (`https://cloud.google.com/bigquery/docs/bi-engine-intro.md.txt`)**: load when checking current supported SQL functions, operators, and reservation capacity limits for in-memory acceleration.
-- **Search indexes (`https://cloud.google.com/bigquery/docs/search-intro.md.txt`)**: load when configuring `CREATE SEARCH INDEX` analyzer options (`LOG_ANALYZER`, `NO_OP_ANALYZER`) or querying nested JSON fields with `SEARCH()`.
-- **Materialized views (`https://cloud.google.com/bigquery/docs/materialized-views-intro.md.txt`)**: load when verifying incremental refresh eligibility rules or smart tuning query rewrite constraints.
-- **Compute performance best practices (`https://cloud.google.com/bigquery/docs/best-practices-performance-compute.md.txt`)**: load when resolving complex distributed join skew, broadcast join sizing limits, or shuffle spillage.
+- **Partitioned tables (`https://docs.cloud.google.com/bigquery/docs/partitioned-tables.md.txt`)**: load when designing partition expiration policies, integer-range partitioning boundaries, or troubleshooting partition pruning edge cases.
+- **Clustered tables (`https://docs.cloud.google.com/bigquery/docs/clustered-tables.md.txt`)**: load when evaluating automatic re-clustering behavior or multi-column block pruning mechanics.
+- **BI Engine (`https://docs.cloud.google.com/bigquery/docs/bi-engine-intro.md.txt`)**: load when checking current supported SQL functions, operators, and reservation capacity limits for in-memory acceleration.
+- **Search indexes (`https://docs.cloud.google.com/bigquery/docs/search-intro.md.txt`)**: load when configuring `CREATE SEARCH INDEX` analyzer options (`LOG_ANALYZER`, `NO_OP_ANALYZER`) or querying nested JSON fields with `SEARCH()`.
+- **Materialized views (`https://docs.cloud.google.com/bigquery/docs/materialized-views-intro.md.txt`)**: load when verifying incremental refresh eligibility rules or smart tuning query rewrite constraints.
+- **Compute performance best practices (`https://docs.cloud.google.com/bigquery/docs/best-practices-performance-compute.md.txt`)**: load when resolving complex distributed join skew, broadcast join sizing limits, or shuffle spillage.

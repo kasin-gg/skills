@@ -39,14 +39,14 @@ Activate this skill whenever the user asks to:
 Before executing this skill, ensure the environment is configured with the necessary SDKs, permissions, and billing:
 
 1. **Cloud SDK and client library installation**:
-   - Install the Google Cloud CLI: [Google Cloud SDK Installation Guide](https://cloud.google.com/sdk/docs/install)
+   - Install the Google Cloud CLI: [Google Cloud SDK installation guide](https://docs.cloud.google.com/sdk/docs/install-sdk.md.txt)
    - Install the BigQuery Python client:
 
      ```bash
      pip install google-cloud-bigquery
      ```
 
-1. **Project selection and billing**:
+1. **Project, billing, and regional selection**:
    - Set the active project:
 
      ```bash
@@ -54,6 +54,7 @@ Before executing this skill, ensure the environment is configured with the neces
      ```
 
    - **Important**: the target Google Cloud project must have an active Cloud Billing account attached.
+   - **Regional selection**: specify the target BigQuery dataset location or execution region, as BigQuery `INFORMATION_SCHEMA` views are strictly region-scoped (for example, multi-regions like `region-us` or `region-eu`, or single regions like `region-us-central1`). Querying the wrong region returns empty job telemetry. Pass the matching region via `--region` (the script automatically normalizes location names like `us-central1` to `region-us-central1`). For valid location identifiers, see [BigQuery locations](https://docs.cloud.google.com/bigquery/docs/locations.md.txt).
 
 1. **API enablement**:
    - Enable the BigQuery API on the project:

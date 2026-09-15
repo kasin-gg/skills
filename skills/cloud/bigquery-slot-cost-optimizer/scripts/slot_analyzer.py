@@ -301,15 +301,18 @@ def detect_unpartitioned_scans(
         # Flag function wrappers on columns in WHERE clause (e.g., WHERE DATE(order_timestamp) = ...)
         # which invalidate BigQuery partition pruning
         function_wrapper_antipattern = re.compile(
-            r"(?i)\bWHERE\b[\s\S]*?\b(?:DATE|TIMESTAMP|DATETIME|EXTRACT)\s*\(\s*[a-zA-Z_][a-zA-Z0-9_.]*\s*\)\s*(?:=|<|>|<=|>=|\bBETWEEN\b|\bIN\b)"
+            r"(?i)\bWHERE\b[\s\S]*?\b(?:"
+            r"(?:DATE|TIMESTAMP|DATETIME)\s*\(\s*[a-zA-Z_][a-zA-Z0-9_.]*\s*(?:,[^)]*)?\)"
+            r"|EXTRACT\s*\(\s*[a-zA-Z_]+\s+FROM\s+[a-zA-Z_][a-zA-Z0-9_.]*\s*\)"
+            r")\s*(?:=|<|>|<=|>=|\bBETWEEN\b|\bIN\b)"
         )
         # Recognize valid direct partition pruning comparisons (pseudo-columns, direct date/timestamp
         # column comparisons, or comparisons against date/timestamp literals and functions on RHS)
         valid_partition_filter_pattern = re.compile(
             r"(?i)\bWHERE\b[\s\S]*?(?:"
             r"\b(?:_PARTITIONDATE|_PARTITIONTIME)\b"
-            r"|(?:[a-zA-Z_][a-zA-Z0-9_.]*(?:date|time|ts|day|partition|created|updated)[a-zA-Z0-9_]*)\s*(?:=|<|>|<=|>=|\bBETWEEN\b|\bIN\b)"
-            r"|(?:=|<|>|<=|>=|\bBETWEEN\b)\s*(?:DATE|TIMESTAMP|DATETIME|CURRENT_DATE|CURRENT_TIMESTAMP|TIMESTAMP_SUB|DATE_SUB|TIMESTAMP_TRUNC|DATE_TRUNC|'\d{4}-\d{2}-\d{2})"
+            r"|\b(?:[a-zA-Z_][a-zA-Z0-9_.]*)?(?:date|time|ts|day|partition|created|updated)[a-zA-Z0-9_]*\b\s*(?:=|<|>|<=|>=|\bBETWEEN\b|\bIN\b)"
+            r"|(?:=|<|>|<=|>=|\bBETWEEN\b)\s*(?:DATE|TIMESTAMP|DATETIME|CURRENT_DATE|CURRENT_TIMESTAMP|TIMESTAMP_SUB|DATE_SUB|TIMESTAMP_TRUNC|DATE_TRUNC|['\"]\d{4}-\d{2}-\d{2})"
             r")"
         )
 
@@ -345,9 +348,9 @@ def parse_job_row(
     Returns:
         Populated QueryJobMetrics instance.
     """
-    job_id = str(row_data.get("job_id", ""))
-    project_id = str(row_data.get("project_id", ""))
-    user_email = str(row_data.get("user_email", "unknown@example.com"))
+    job_id = str(row_data.get("job_id") or "")
+    project_id = str(row_data.get("project_id") or "")
+    user_email = str(row_data.get("user_email") or "unknown@example.com")
 
     # Parse timestamps
     start_raw = row_data.get("start_time")
@@ -369,7 +372,7 @@ def parse_job_row(
     start_time = _parse_ts(start_raw)
     end_time = _parse_ts(end_raw)
 
-    query_text = str(row_data.get("query", ""))
+    query_text = str(row_data.get("query") or "")
     total_slot_ms = int(row_data.get("total_slot_ms") or 0)
     total_bytes_billed = int(row_data.get("total_bytes_billed") or 0)
     cache_hit = bool(row_data.get("cache_hit", False))
@@ -380,8 +383,8 @@ def parse_job_row(
     for s in raw_stages:
         stages.append(
             JobStage(
-                stage_id=int(s.get("stage_id", 0)),
-                name=str(s.get("name", "")),
+                stage_id=int(s.get("stage_id") or 0),
+                name=str(s.get("name") or ""),
                 records_read=int(s.get("records_read") or 0),
                 records_written=int(s.get("records_written") or 0),
                 shuffle_output_bytes=int(s.get("shuffle_output_bytes") or 0),
