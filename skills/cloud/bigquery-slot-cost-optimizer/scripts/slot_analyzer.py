@@ -19,11 +19,11 @@ slot-hours, identify slot contention, pinpoint Cartesian explosions,
 and flag costly unpartitioned table scans.
 
 Note:
-    Pricing calculations for on-demand queries and editions slot-hours are
-    configurable approximations. Actual Google Cloud BigQuery costs vary
-    depending on region, chosen edition (Standard, Enterprise, Enterprise Plus),
-    and baseline or commitment terms. Consult official pricing documentation:
-    https://cloud.google.com/bigquery/pricing
+    Pricing calculations for on-demand queries and editions slot-hours require
+    live billing rates passed at runtime via --ondemand-rate and --slot-hour-rate.
+    Actual Google Cloud BigQuery costs vary depending on region, chosen edition
+    (Standard, Enterprise, Enterprise Plus), and baseline or commitment terms.
+    Consult official pricing documentation: https://cloud.google.com/bigquery/pricing
 """
 
 import argparse
@@ -165,27 +165,22 @@ def calculate_avg_slot_concurrency(
 def calculate_cost_estimates(
     total_bytes_billed: int,
     slot_hours: float,
-    ondemand_rate_per_tib: float = 6.25,
-    editions_rate_per_slot_hour: float = 0.06,
+    ondemand_rate_per_tib: float,
+    editions_rate_per_slot_hour: float,
 ) -> Tuple[float, float]:
     """Computes dollar cost estimates for both On-Demand and Editions pricing.
 
-    Pricing baseline:
-    - On-Demand: $6.25 per TiB ($6.25 / 1,099,511,627,776 bytes) by default.
-    - Enterprise Edition equivalence: $0.06 per slot-hour by default.
-
     Note:
-        Default rates serve as offline reference baselines. AI agents and users
-        should retrieve live regional pricing rates at runtime from
-        https://cloud.google.com/bigquery/pricing (matching region, edition,
-        and commitment tier) and pass them explicitly via --ondemand-rate
-        and --slot-hour-rate.
+        AI agents and users must retrieve live regional pricing rates at runtime
+        from https://cloud.google.com/bigquery/pricing (matching region, edition,
+        and commitment tier) and pass them explicitly via --ondemand-rate and
+        --slot-hour-rate.
 
     Args:
         total_bytes_billed: Total billed bytes scanned.
         slot_hours: Total slot-hours consumed.
-        ondemand_rate_per_tib: Pricing rate in USD per TiB scanned (default: 6.25).
-        editions_rate_per_slot_hour: Pricing rate in USD per slot-hour (default: 0.06).
+        ondemand_rate_per_tib: Pricing rate in USD per TiB scanned.
+        editions_rate_per_slot_hour: Pricing rate in USD per slot-hour.
 
     Returns:
         Tuple of (cost_ondemand_usd, cost_editions_usd).
@@ -333,22 +328,22 @@ def detect_unpartitioned_scans(
 
 def parse_job_row(
     row_data: Dict[str, Any],
-    ondemand_rate_per_tib: float = 6.25,
-    editions_rate_per_slot_hour: float = 0.06,
+    ondemand_rate_per_tib: float,
+    editions_rate_per_slot_hour: float,
 ) -> QueryJobMetrics:
     """Transforms raw INFORMATION_SCHEMA row dictionary into QueryJobMetrics.
 
     Args:
         row_data: Raw dictionary from INFORMATION_SCHEMA or mock data.
-        ondemand_rate_per_tib: Dollar rate per TiB billed (default: 6.25).
-        editions_rate_per_slot_hour: Dollar rate per slot-hour (default: 0.06).
+        ondemand_rate_per_tib: Dollar rate per TiB billed.
+        editions_rate_per_slot_hour: Dollar rate per slot-hour.
 
     Returns:
         Populated QueryJobMetrics instance.
     """
     job_id = str(row_data.get("job_id") or "")
     project_id = str(row_data.get("project_id") or "")
-    user_email = str(row_data.get("user_email") or "unknown@example.com")
+    user_email = str(row_data.get("user_email") or "unknown")
 
     # Parse timestamps
     start_raw = row_data.get("start_time")
@@ -947,20 +942,20 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--ondemand-rate",
         type=float,
-        default=6.25,
+        default=None,
         help=(
-            "On-demand pricing rate in USD per TiB (default: 6.25). "
-            "Agents should retrieve live regional rates at runtime from "
+            "On-demand pricing rate in USD per TiB (required unless --dry-run). "
+            "Agents must retrieve live regional rates at runtime from "
             "https://cloud.google.com/bigquery/pricing and pass explicitly."
         ),
     )
     parser.add_argument(
         "--slot-hour-rate",
         type=float,
-        default=0.06,
+        default=None,
         help=(
-            "Editions pricing rate in USD per slot-hour (default: 0.06). "
-            "Agents should retrieve live regional rates at runtime from "
+            "Editions pricing rate in USD per slot-hour (required unless --dry-run). "
+            "Agents must retrieve live regional rates at runtime from "
             "https://cloud.google.com/bigquery/pricing and pass explicitly."
         ),
     )
@@ -982,22 +977,47 @@ def run_analysis(args: argparse.Namespace) -> int:
         return 2
 
     region = normalize_region(args.region)
-    project_id = args.project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "acme-analytics-prod")
+    project_id = args.project_id or os.getenv("GOOGLE_CLOUD_PROJECT")
 
     # 2. Dry-Run inspection mode
     if args.dry_run:
+        if not project_id:
+            print(
+                "Validation Error: --project-id (or GOOGLE_CLOUD_PROJECT environment variable) is required.",
+                file=sys.stderr,
+            )
+            return 2
         sql = generate_information_schema_query(project_id, region, args.days, args.limit * 5)
         print("-- DRY-RUN: Regional BigQuery INFORMATION_SCHEMA Query:")
         print(sql)
         return 0
 
+    if args.ondemand_rate is None or args.slot_hour_rate is None:
+        print(
+            "Validation Error: --ondemand-rate and --slot-hour-rate are required. "
+            "Retrieve live regional pricing rates from "
+            "https://cloud.google.com/bigquery/pricing and pass them explicitly.",
+            file=sys.stderr,
+        )
+        return 2
+
     # 3. Data acquisition (offline mock vs live BigQuery)
     try:
         if args.mock_data_file:
             raw_rows = load_mock_data(args.mock_data_file)
-            if raw_rows and "project_id" in raw_rows[0]:
-                project_id = str(raw_rows[0]["project_id"])
+            if not project_id:
+                project_id = (
+                    str(raw_rows[0]["project_id"])
+                    if raw_rows and "project_id" in raw_rows[0]
+                    else "mock-project"
+                )
         else:
+            if not project_id:
+                print(
+                    "Validation Error: --project-id (or GOOGLE_CLOUD_PROJECT environment variable) is required.",
+                    file=sys.stderr,
+                )
+                return 2
             raw_rows = fetch_bigquery_jobs(project_id, region, args.days, args.limit * 5)
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1010,8 +1030,8 @@ def run_analysis(args: argparse.Namespace) -> int:
         return 1
 
     # 4. Processing & Metrics Compilation
-    ondemand_rate = getattr(args, "ondemand_rate", 6.25)
-    slot_hour_rate = getattr(args, "slot_hour_rate", 0.06)
+    ondemand_rate = float(args.ondemand_rate)
+    slot_hour_rate = float(args.slot_hour_rate)
     analyzed_jobs = [
         parse_job_row(
             row,

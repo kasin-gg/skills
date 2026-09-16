@@ -69,11 +69,14 @@ cases {
   expectations:
     "The response MUST specify `--project-id fintech-analytics-prod` (or `--project`)."
   expectations:
-    "The response MUST specify `--region region-us` or `us-central1`."
+    "The response MUST specify `--region region-us-central1` or `--region us-central1`."
   expectations:
     "The response MUST specify `--days 14`."
   expectations:
     "The response MUST mention the `--format table` or `--format json` output options."
+  expectations:
+    "The response MUST instruct retrieving live regional pricing rates from "
+    "https://cloud.google.com/bigquery/pricing and passing them via `--ondemand-rate` and `--slot-hour-rate`."
 }
 
 cases {

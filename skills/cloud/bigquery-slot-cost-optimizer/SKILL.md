@@ -88,20 +88,21 @@ Run `scripts/slot_analyzer.py` to pull and analyze historical query telemetry fr
 ```bash
 # General analysis passing live regional pricing rates fetched from BigQuery pricing
 python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --days 7 \
-  --ondemand-rate 6.25 --slot-hour-rate 0.06 --format table
+  --ondemand-rate <USD_PER_TIB> --slot-hour-rate <USD_PER_SLOT_HOUR> --format table
 
 # Output structured JSON for programmatically parsing recommendations
 python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --days 7 \
-  --ondemand-rate 6.25 --slot-hour-rate 0.06 --format json
+  --ondemand-rate <USD_PER_TIB> --slot-hour-rate <USD_PER_SLOT_HOUR> --format json
 
 # Offline verification mode using synthetic or extracted telemetry
-python3 scripts/slot_analyzer.py --mock-data-file path/to/extracted_telemetry.json --format table
+python3 scripts/slot_analyzer.py --mock-data-file path/to/extracted_telemetry.json \
+  --ondemand-rate <USD_PER_TIB> --slot-hour-rate <USD_PER_SLOT_HOUR> --format table
 
 # Dry-run mode to inspect regional SQL query
 python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --region region-us --dry-run
 ```
 
-Run `python3 scripts/slot_analyzer.py --help` to inspect all supported CLI flags, focus modes (`--mode`), and configurable pricing rate arguments (`--ondemand-rate` per TiB and `--slot-hour-rate` per slot-hour).
+Run `python3 scripts/slot_analyzer.py --help` to inspect all supported CLI flags, focus modes (`--mode`), and required pricing rate arguments (`--ondemand-rate` per TiB and `--slot-hour-rate` per slot-hour).
 
 ## Metric interpretation and decision tree
 
@@ -140,9 +141,12 @@ Evaluate the telemetry output using the following decision rules:
 
 ### Rule JOIN-001: Cartesian and exploding joins
 
-- **Symptoms**: output records exceed input records by orders of magnitude; `shuffle_output_bytes_spilled` > 0.
-- **Root cause**: `CROSS JOIN` or non-unique join keys causing duplicate row generation ($M \times N$ expansion).
+- **Symptoms**: query execution stage telemetry shows massive row count explosions where `records_written` drastically exceeds `records_read` by orders of magnitude, accompanied by memory spillage to persistent storage (`shuffle_output_bytes_spilled` > 0).
+- **Root cause**: missing or non-selective join predicates (such as unintentional `CROSS JOIN`, missing `ON` conditions, or `ON 1=1`) or non-unique join keys causing duplicate row generation ($M \times N$ expansion).
 - **Remediation**:
+  - Check query execution stage telemetry for row count multiplication (`records_written` vs. `records_read`) and shuffle spillage (`shuffle_output_bytes_spilled`).
+  - Inspect SQL join clauses for missing `ON` predicates or unintentional `CROSS JOIN` syntax.
+  - Pre-aggregate dimensional data before joining or enforce distinct key constraints to eliminate row multiplication:
   - **Antipattern**:
 
     ```sql
@@ -178,10 +182,13 @@ Evaluate the telemetry output using the following decision rules:
 
 ### Rule PART-001: unpartitioned scans and partition pruning
 
-- **Symptoms**: `total_bytes_billed` > 10 GB scanning historical logs or transaction history.
-- **Root cause**: table is unpartitioned or query applies functions that prevent partition pruning.
+- **Symptoms**: high `total_bytes_billed` and `total_bytes_processed` (> 10 GB) in `INFORMATION_SCHEMA.JOBS_BY_PROJECT` when scanning historical logs or transaction history.
+- **Root cause**: table lacks partitioning or query applies functions that prevent partition pruning.
 - **Remediation**:
-  - **Partition table DDL**:
+  - Inspect both `total_bytes_billed` and `total_bytes_processed` in `INFORMATION_SCHEMA.JOBS_BY_PROJECT` to identify full table scans.
+  - Verify whether referenced tables have date, timestamp, or integer-range partitioning configured by querying `INFORMATION_SCHEMA.PARTITIONS` or `INFORMATION_SCHEMA.TABLES`.
+  - Enforce partition filters by setting `require_partition_filter = TRUE` on large partitioned tables to block accidental full table scans, and combine partitioning with multi-column clustering (`CLUSTER BY`) on high-cardinality filtering and grouping columns:
+  - **Partition and cluster table DDL**:
 
     ```sql
     ALTER TABLE `ecommerce.orders`
@@ -226,7 +233,8 @@ print(f"Scanned bytes: {query_job.total_bytes_processed / (1024**3):.2f} GB")
 - **Offline mock telemetry verification**: validate heuristic classification, slot contention detection, Cartesian join identification, and cost estimation offline using synthetic or extracted JSON telemetry payloads (`--mock-data-file`):
 
   ```bash
-  python3 scripts/slot_analyzer.py --mock-data-file path/to/extracted_telemetry.json --format table
+  python3 scripts/slot_analyzer.py --mock-data-file path/to/extracted_telemetry.json \
+    --ondemand-rate <USD_PER_TIB> --slot-hour-rate <USD_PER_SLOT_HOUR> --format table
   ```
 
 - **CLI dry-run inspection**: verify regional SQL query formation and script execution without contacting BigQuery or incurring costs:
