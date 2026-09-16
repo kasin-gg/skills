@@ -142,12 +142,31 @@ Evaluate the telemetry output using the following decision rules:
 ### Rule JOIN-001: Cartesian and exploding joins
 
 - **Symptoms**: query execution stage telemetry shows massive row count explosions where `records_written` drastically exceeds `records_read` by orders of magnitude, accompanied by memory spillage to persistent storage (`shuffle_output_bytes_spilled` > 0).
-- **Root cause**: missing or non-selective join predicates (such as unintentional `CROSS JOIN`, missing `ON` conditions, or `ON 1=1`) or non-unique join keys causing duplicate row generation ($M \times N$ expansion).
-- **Remediation**:
-  - Check query execution stage telemetry for row count multiplication (`records_written` vs. `records_read`) and shuffle spillage (`shuffle_output_bytes_spilled`).
-  - Inspect SQL join clauses for missing `ON` predicates or unintentional `CROSS JOIN` syntax.
-  - Pre-aggregate dimensional data before joining or enforce distinct key constraints to eliminate row multiplication:
-  - **Antipattern**:
+- **Root cause**: missing or non-selective join predicates (such as unintentional `CROSS JOIN`, missing `ON` conditions, or tautological `ON 1=1` predicates) or non-unique many-to-many join keys causing duplicate row generation ($M \times N$ expansion).
+- **Mandatory diagnostic and remediation workflow (include all 4 steps in your analysis)**:
+  1. **Check stage telemetry for row count explosions**: query `INFORMATION_SCHEMA.JOBS_BY_PROJECT` (`job_stages`) or inspect the execution graph to identify stages where output rows (`records_written`) drastically exceed input rows (`records_read`).
+  2. **Check for missing or non-selective join predicates**: explicitly inspect every `JOIN` clause in the SQL query text for missing `ON` conditions, unintentional `CROSS JOIN` syntax, or non-selective join predicates (such as `ON 1=1`), in addition to checking for duplicate keys across joined tables.
+  3. **Check for memory spillage to persistent storage**: check stage telemetry for `shuffle_output_bytes_spilled > 0` (shuffle disk spillage caused by intermediate join state exceeding slot memory buffers).
+  4. **Pre-aggregate dimensional data or enforce distinct keys**: pre-aggregate dimensional/activity tables down to unique join keys in CTEs before joining, or enforce `DISTINCT` key constraints to eliminate row multiplication:
+
+  - **Diagnostic SQL for stage row explosion and shuffle spillage**:
+
+    ```sql
+    SELECT
+      job_id,
+      stage.name AS stage_name,
+      stage.records_read,
+      stage.records_written,
+      SAFE_DIVIDE(stage.records_written, NULLIF(stage.records_read, 0)) AS row_expansion_ratio,
+      stage.shuffle_output_bytes_spilled
+    FROM `region-us`.INFORMATION_SCHEMA.JOBS_BY_PROJECT,
+    UNNEST(job_stages) AS stage
+    WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+      AND (stage.records_written > stage.records_read * 10 OR stage.shuffle_output_bytes_spilled > 0)
+    ORDER BY stage.shuffle_output_bytes_spilled DESC;
+    ```
+
+  - **Antipattern (unintentional CROSS JOIN / missing ON condition)**:
 
     ```sql
     SELECT *
@@ -156,18 +175,7 @@ Evaluate the telemetry output using the following decision rules:
     WHERE o.customer_id = e.customer_id;
     ```
 
-  - **Optimized SQL**:
-
-    ```sql
-    -- Replace with qualified inner or left equi-join
-    SELECT o.order_id, o.total_amount, e.event_name
-    FROM `orders` o
-    INNER JOIN `web_events` e
-      ON o.customer_id = e.customer_id;
-    ```
-
-  - **Pre-aggregation pattern**:
-    When joining two child tables on a shared parent key, aggregate dimensions before joining:
+  - **Optimized SQL (qualified equi-join + pre-aggregation CTE)**:
 
     ```sql
     WITH agg_events AS (
@@ -177,25 +185,62 @@ Evaluate the telemetry output using the following decision rules:
     )
     SELECT o.order_id, o.customer_id, e.event_count
     FROM `orders` o
-    LEFT JOIN agg_events e ON o.customer_id = e.customer_id;
+    INNER JOIN agg_events e
+      ON o.customer_id = e.customer_id;
     ```
 
 ### Rule PART-001: unpartitioned scans and partition pruning
 
 - **Symptoms**: high `total_bytes_billed` and `total_bytes_processed` (> 10 GB) in `INFORMATION_SCHEMA.JOBS_BY_PROJECT` when scanning historical logs or transaction history.
-- **Root cause**: table lacks partitioning or query applies functions that prevent partition pruning.
-- **Remediation**:
-  - Inspect both `total_bytes_billed` and `total_bytes_processed` in `INFORMATION_SCHEMA.JOBS_BY_PROJECT` to identify full table scans.
-  - Verify whether referenced tables have date, timestamp, or integer-range partitioning configured by querying `INFORMATION_SCHEMA.PARTITIONS` or `INFORMATION_SCHEMA.TABLES`.
-  - Enforce partition filters by setting `require_partition_filter = TRUE` on large partitioned tables to block accidental full table scans, and combine partitioning with multi-column clustering (`CLUSTER BY`) on high-cardinality filtering and grouping columns:
-  - **Partition and cluster table DDL**:
+- **Root cause**: table lacks partitioning, query omits partition filter predicates, or query wraps partitioned columns in functions that prevent partition pruning.
+- **Mandatory diagnostic and remediation workflow (include all 4 steps in your analysis)**:
+  1. **Inspect both `total_bytes_billed` and `total_bytes_processed` in `INFORMATION_SCHEMA.JOBS_BY_PROJECT`**: run a diagnostic query selecting **both** `total_bytes_billed` and `total_bytes_processed` to identify expensive full table scans:
 
-    ```sql
-    ALTER TABLE `ecommerce.orders`
-    SET OPTIONS (require_partition_filter = TRUE);
-    ```
+     ```sql
+     SELECT
+       job_id,
+       user_email,
+       total_bytes_processed,
+       total_bytes_billed,
+       query
+     FROM `region-us`.INFORMATION_SCHEMA.JOBS_BY_PROJECT
+     WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+       AND total_bytes_processed > 10 * 1024 * 1024 * 1024
+     ORDER BY total_bytes_billed DESC;
+     ```
 
-  - **Avoid function wrappers in predicates**:
+  2. **Verify date, timestamp, or integer-range partitioning on referenced tables**: query `INFORMATION_SCHEMA.COLUMNS` (checking `is_partitioning_column = 'YES'` and `data_type` for `DATE`, `TIMESTAMP`, `DATETIME`, or `INT64` integer-range partitioning) and `INFORMATION_SCHEMA.PARTITIONS` to verify whether referenced tables are partitioned and inspect their partition scheme:
+
+     ```sql
+     SELECT
+       table_name,
+       column_name,
+       data_type AS partition_type,
+       is_partitioning_column,
+       clustering_ordinal_position
+     FROM `project.dataset`.INFORMATION_SCHEMA.COLUMNS
+     WHERE is_partitioning_column = 'YES'
+        OR clustering_ordinal_position IS NOT NULL;
+     ```
+
+  3. **Enforce partition filters (`require_partition_filter = TRUE`)**: enable `require_partition_filter = TRUE` on large partitioned tables via `ALTER TABLE` or `CREATE TABLE` DDL to block accidental full table scans:
+
+     ```sql
+     ALTER TABLE `project.dataset.orders`
+     SET OPTIONS (require_partition_filter = TRUE);
+     ```
+
+  4. **Recommend clustering on high-cardinality filtering and grouping columns**: always combine partitioning with multi-column clustering (`CLUSTER BY`) on high-cardinality columns frequently used in `WHERE` filters, `JOIN` keys, and `GROUP BY` clauses (up to 4 columns):
+
+     ```sql
+     CREATE OR REPLACE TABLE `project.dataset.orders_optimized`
+     PARTITION BY DATE(order_timestamp)
+     CLUSTER BY customer_id, region_id
+     OPTIONS (require_partition_filter = TRUE)
+     AS SELECT * FROM `project.dataset.orders`;
+     ```
+
+  - **Avoid function wrappers on partition columns**:
 
     ```sql
     -- BAD: Scans entire table because function wraps partitioned column

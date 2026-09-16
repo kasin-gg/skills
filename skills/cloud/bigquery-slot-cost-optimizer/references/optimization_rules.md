@@ -4,13 +4,13 @@ This reference catalog documents concrete optimization heuristics, architectural
 
 ## Table of contents
 
-- [Partitioning optimization](#partitioning-optimization): lines 15-70
-- [Multi-column clustering optimization](#multi-column-clustering-optimization): lines 71-103
-- [BI Engine in-memory acceleration](#bi-engine-in-memory-acceleration): lines 104-123
-- [BigQuery search indexes](#bigquery-search-indexes): lines 124-157
-- [Materialized views and transparent query rewriting](#materialized-views-and-transparent-query-rewriting): lines 158-184
-- [Join optimization and data skew mitigation](#join-optimization-and-data-skew-mitigation): lines 185-242
-- [Official BigQuery documentation links for progressive disclosure](#official-bigquery-documentation-links-for-progressive-disclosure): lines 243-253
+- [Partitioning optimization](#partitioning-optimization): lines 15-116
+- [Multi-column clustering optimization](#multi-column-clustering-optimization): lines 117-149
+- [BI Engine in-memory acceleration](#bi-engine-in-memory-acceleration): lines 150-169
+- [BigQuery search indexes](#bigquery-search-indexes): lines 170-203
+- [Materialized views and transparent query rewriting](#materialized-views-and-transparent-query-rewriting): lines 204-230
+- [Join optimization and data skew mitigation](#join-optimization-and-data-skew-mitigation): lines 231-290
+- [Official BigQuery documentation links for progressive disclosure](#official-bigquery-documentation-links-for-progressive-disclosure): lines 291-301
 
 ## Partitioning optimization
 
@@ -24,7 +24,7 @@ Table partitioning divides large tables into smaller segments, significantly red
    - Example DDL:
 
      ```sql
-     CREATE OR REPLACE TABLE `acme-analytics-prod.ecommerce.orders`
+     CREATE OR REPLACE TABLE `<PROJECT_ID>.ecommerce.orders`
      (
        order_id STRING,
        customer_id STRING,
@@ -46,6 +46,52 @@ Table partitioning divides large tables into smaller segments, significantly red
    - Partitioned on an `INT64` column using `GENERATE_ARRAY(start, end, interval)`.
    - Example: Customer ID ranges or account segment IDs.
 
+### Identifying unpartitioned scans and verifying table partitioning
+
+To diagnose and remediate unpartitioned full table scans, always follow these 4 steps:
+
+1. **Inspect both `total_bytes_billed` and `total_bytes_processed` in `INFORMATION_SCHEMA.JOBS_BY_PROJECT`**:
+   Query `INFORMATION_SCHEMA.JOBS_BY_PROJECT` selecting both `total_bytes_billed` and `total_bytes_processed` to identify high-cost queries scanning full tables:
+
+   ```sql
+   SELECT
+     job_id,
+     user_email,
+     total_bytes_processed,
+     total_bytes_billed,
+     query
+   FROM `region-us`.INFORMATION_SCHEMA.JOBS_BY_PROJECT
+   WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+     AND total_bytes_processed > 10 * 1024 * 1024 * 1024
+   ORDER BY total_bytes_billed DESC;
+   ```
+
+2. **Verify whether referenced tables have date, timestamp, or integer-range partitioning**:
+   Query `INFORMATION_SCHEMA.COLUMNS` (checking `is_partitioning_column = 'YES'` and inspecting `data_type` for `DATE`, `TIMESTAMP`, `DATETIME`, or `INT64` integer-range partitioning) and `INFORMATION_SCHEMA.PARTITIONS` to confirm whether referenced tables are partitioned:
+
+   ```sql
+   SELECT
+     table_name,
+     column_name,
+     data_type AS partition_type,
+     is_partitioning_column,
+     clustering_ordinal_position
+   FROM `<PROJECT_ID>.<DATASET>`.INFORMATION_SCHEMA.COLUMNS
+   WHERE is_partitioning_column = 'YES'
+      OR clustering_ordinal_position IS NOT NULL;
+   ```
+
+3. **Enforce partition filters (`require_partition_filter = TRUE`)**:
+   Enable `require_partition_filter = TRUE` on large partitioned tables (>10 GB) to block accidental full table scans:
+
+   ```sql
+   ALTER TABLE `<PROJECT_ID>.<DATASET>.orders`
+   SET OPTIONS (require_partition_filter = TRUE);
+   ```
+
+4. **Combine partitioning with clustering on high-cardinality filtering and grouping columns**:
+   Always recommend clustering (`CLUSTER BY`) on high-cardinality columns frequently used in `WHERE` filters, `JOIN` keys, and `GROUP BY` aggregations (up to 4 columns) alongside partitioning.
+
 ### Architectural guardrails
 
 - **Max partitions**: a table cannot exceed 4,000 partitions. Daily partitioning supports approximately 10 years of historical data; hourly partitioning supports approximately 5.5 months.
@@ -58,12 +104,12 @@ Table partitioning divides large tables into smaller segments, significantly red
   ```sql
   -- BAD: Prevents partition pruning, scans entire table!
   SELECT COUNT(*)
-  FROM `acme-analytics-prod.ecommerce.orders`
+  FROM `<PROJECT_ID>.ecommerce.orders`
   WHERE DATE(order_timestamp) = '2026-03-01';
 
   -- GOOD: Prunes partitions deterministically using timestamp bounds
   SELECT COUNT(*)
-  FROM `acme-analytics-prod.ecommerce.orders`
+  FROM `<PROJECT_ID>.ecommerce.orders`
   WHERE order_timestamp >= '2026-03-01 00:00:00 UTC'
     AND order_timestamp < '2026-03-02 00:00:00 UTC';
   ```
@@ -83,7 +129,7 @@ When defining clustered columns, ordering matters:
 Example DDL:
 
 ```sql
-CREATE OR REPLACE TABLE `acme-analytics-prod.ecommerce.orders_clustered`
+CREATE OR REPLACE TABLE `<PROJECT_ID>.ecommerce.orders_clustered`
 (
   order_id STRING,
   customer_id STRING,
@@ -132,11 +178,11 @@ Create search indexes across all columns or targeted string/JSON columns:
 ```sql
 -- Index all text columns in audit log table
 CREATE SEARCH INDEX IF NOT EXISTS logs_search_idx
-ON `acme-analytics-prod.telemetry.application_logs`(ALL COLUMNS);
+ON `<PROJECT_ID>.telemetry.application_logs`(ALL COLUMNS);
 
 -- Index targeted JSON payload column
 CREATE SEARCH INDEX IF NOT EXISTS payload_search_idx
-ON `acme-analytics-prod.telemetry.events`(payload);
+ON `<PROJECT_ID>.telemetry.events`(payload);
 ```
 
 ### Query patterns and rewrites
@@ -146,12 +192,12 @@ ON `acme-analytics-prod.telemetry.events`(payload);
 ```sql
 -- BAD: Full table scan scanning hundreds of gigabytes
 SELECT timestamp, log_level, message
-FROM `acme-analytics-prod.telemetry.application_logs`
+FROM `<PROJECT_ID>.telemetry.application_logs`
 WHERE REGEXP_CONTAINS(message, r'FATAL_EXCEPTION_500');
 
 -- GOOD: Search index lookup scanning near zero bytes
 SELECT timestamp, log_level, message
-FROM `acme-analytics-prod.telemetry.application_logs`
+FROM `<PROJECT_ID>.telemetry.application_logs`
 WHERE SEARCH(message, '`FATAL_EXCEPTION_500`');
 ```
 
@@ -169,7 +215,7 @@ A major architectural advantage in BigQuery is transparent query rewriting:
 Example DDL:
 
 ```sql
-CREATE MATERIALIZED VIEW `acme-analytics-prod.ecommerce.mv_daily_sales_by_region`
+CREATE MATERIALIZED VIEW `<PROJECT_ID>.ecommerce.mv_daily_sales_by_region`
 PARTITION BY order_date
 CLUSTER BY region_id
 AS
@@ -178,7 +224,7 @@ SELECT
   region_id,
   COUNT(order_id) AS total_orders,
   SUM(total_amount) AS total_revenue
-FROM `acme-analytics-prod.ecommerce.orders`
+FROM `<PROJECT_ID>.ecommerce.orders`
 GROUP BY 1, 2;
 ```
 
@@ -194,37 +240,39 @@ Inefficient joins are the primary cause of memory exhaustion, shuffle disk spill
 
 ### Cartesian join elimination
 
-- A Cartesian product (`CROSS JOIN` or unqualified join condition) multiplies row counts exponentially ($M \times N$), causing shuffle spilling to persistent disk.
-- **Remediation**:
-  1. Replace `CROSS JOIN` with filtered equi-joins.
-  1. If matching many-to-many relationships, pre-aggregate one side before joining.
+- A Cartesian product (`CROSS JOIN`, missing `ON` condition, or non-selective/many-to-many join predicate) multiplies row counts exponentially ($M \times N$), causing memory exhaustion and shuffle spilling to persistent disk.
+- **Mandatory 4-step diagnostic and remediation checklist**:
+  1. **Check stage telemetry for row count explosions**: query `INFORMATION_SCHEMA.JOBS_BY_PROJECT` (`job_stages`) or inspect the query execution graph to identify stages where output rows (`records_written`) drastically exceed input rows (`records_read`).
+  2. **Check for missing or non-selective join predicates**: inspect the SQL query text for missing `ON` conditions, unintentional `CROSS JOIN` syntax, or non-selective predicates (`ON 1=1`), in addition to checking for duplicate keys across joined tables.
+  3. **Check for memory spillage to persistent storage**: verify whether `shuffle_output_bytes_spilled > 0` in stage telemetry, indicating that intermediate join state overwhelmed slot memory buffers and spilled to disk.
+  4. **Pre-aggregate dimensional data or enforce distinct keys**: pre-aggregate dimensional or activity tables down to unique join keys in CTEs before joining, or enforce `DISTINCT` key constraints to eliminate row multiplication:
 
 ```sql
--- BAD: Exploding Cartesian join due to multiple transactions per customer per day
+-- BAD: Exploding Cartesian join due to missing ON condition, unintentional CROSS JOIN, or duplicate activity keys
 SELECT
   c.customer_id,
   t.transaction_amount,
   e.event_name
-FROM `acme-analytics-prod.ecommerce.customers` c
-JOIN `acme-analytics-prod.ecommerce.transactions` t ON c.customer_id = t.customer_id
-JOIN `acme-analytics-prod.ecommerce.web_events` e ON c.customer_id = e.customer_id;
+FROM `<PROJECT_ID>.ecommerce.customers` c
+JOIN `<PROJECT_ID>.ecommerce.transactions` t ON c.customer_id = t.customer_id
+JOIN `<PROJECT_ID>.ecommerce.web_events` e ON c.customer_id = e.customer_id;
 
 -- GOOD: Pre-aggregated metrics joined cleanly without row multiplication
 WITH txn_summary AS (
   SELECT customer_id, SUM(transaction_amount) AS total_spent
-  FROM `acme-analytics-prod.ecommerce.transactions`
+  FROM `<PROJECT_ID>.ecommerce.transactions`
   GROUP BY customer_id
 ),
 event_summary AS (
   SELECT customer_id, COUNT(*) AS total_events
-  FROM `acme-analytics-prod.ecommerce.web_events`
+  FROM `<PROJECT_ID>.ecommerce.web_events`
   GROUP BY customer_id
 )
 SELECT
   c.customer_id,
   COALESCE(t.total_spent, 0) AS total_spent,
   COALESCE(e.total_events, 0) AS total_events
-FROM `acme-analytics-prod.ecommerce.customers` c
+FROM `<PROJECT_ID>.ecommerce.customers` c
 LEFT JOIN txn_summary t ON c.customer_id = t.customer_id
 LEFT JOIN event_summary e ON c.customer_id = e.customer_id;
 ```
