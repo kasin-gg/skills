@@ -77,20 +77,22 @@ Before executing this skill, ensure the environment is configured with the neces
      - `roles/bigquery.resourceViewer`: grants read-only access to query metadata in `INFORMATION_SCHEMA.JOBS_BY_PROJECT` and capacity reservations.
 
 1. **Pricing reference**:
-   - Cost estimates in this skill are for planning purposes. Reference official [Google Cloud BigQuery Pricing](https://cloud.google.com/bigquery/pricing) for real-time regional rates and reservation commitment pricing.
+   - Cost estimates in this skill are for planning purposes. Before running `scripts/slot_analyzer.py`, retrieve live BigQuery billing rates at runtime from official [Google Cloud BigQuery Pricing](https://cloud.google.com/bigquery/pricing) (and consult [BigQuery editions introduction](https://docs.cloud.google.com/bigquery/docs/editions-intro.md.txt) for edition capabilities) after considering user-specific parameters such as target region, chosen edition (`Standard`, `Enterprise`, `Enterprise Plus`), and commitment tier (`Pay-as-you-go`, `1-year`, `3-year`). Pass these runtime-fetched rates explicitly via `--ondemand-rate <USD_PER_TIB>` and `--slot-hour-rate <USD_PER_SLOT_HOUR>`.
 
 ## Diagnostic execution workflow
 
 ### Execute automated telemetry extraction
 
-Run `scripts/slot_analyzer.py` to pull and analyze historical query telemetry from `INFORMATION_SCHEMA.JOBS_BY_PROJECT`:
+Run `scripts/slot_analyzer.py` to pull and analyze historical query telemetry from `INFORMATION_SCHEMA.JOBS_BY_PROJECT`, passing the runtime-retrieved pricing rates for your specific region, edition, and commitment tier:
 
 ```bash
-# General analysis for the last 7 days
-python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --days 7 --format table
+# General analysis passing live regional pricing rates fetched from BigQuery pricing
+python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --days 7 \
+  --ondemand-rate 6.25 --slot-hour-rate 0.06 --format table
 
 # Output structured JSON for programmatically parsing recommendations
-python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --days 7 --format json
+python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --days 7 \
+  --ondemand-rate 6.25 --slot-hour-rate 0.06 --format json
 
 # Offline verification mode using synthetic or extracted telemetry
 python3 scripts/slot_analyzer.py --mock-data-file path/to/extracted_telemetry.json --format table
@@ -99,7 +101,7 @@ python3 scripts/slot_analyzer.py --mock-data-file path/to/extracted_telemetry.js
 python3 scripts/slot_analyzer.py --project-id <PROJECT_ID> --region region-us --dry-run
 ```
 
-Run `python3 scripts/slot_analyzer.py --help` to inspect all supported CLI flags, focus modes (`--mode`), and configurable pricing rate arguments.
+Run `python3 scripts/slot_analyzer.py --help` to inspect all supported CLI flags, focus modes (`--mode`), and configurable pricing rate arguments (`--ondemand-rate` per TiB and `--slot-hour-rate` per slot-hour).
 
 ## Metric interpretation and decision tree
 
@@ -219,9 +221,14 @@ query_job = client.query(optimized_sql, job_config=job_config)
 print(f"Scanned bytes: {query_job.total_bytes_processed / (1024**3):.2f} GB")
 ```
 
-### Skill evaluation and offline validation
+### Offline and dry-run validation
 
-- **Evaluation suite (`EVAL.txtpb`)**: the skill is validated using the included `EVAL.txtpb` test suite, evaluating diagnostic accuracy against standard intent prompts, slot contention detection, Cartesian join classification, and SQL rewrite heuristics.
+- **Offline mock telemetry verification**: validate heuristic classification, slot contention detection, Cartesian join identification, and cost estimation offline using synthetic or extracted JSON telemetry payloads (`--mock-data-file`):
+
+  ```bash
+  python3 scripts/slot_analyzer.py --mock-data-file path/to/extracted_telemetry.json --format table
+  ```
+
 - **CLI dry-run inspection**: verify regional SQL query formation and script execution without contacting BigQuery or incurring costs:
 
   ```bash

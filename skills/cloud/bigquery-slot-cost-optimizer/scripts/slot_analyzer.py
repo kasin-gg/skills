@@ -165,31 +165,33 @@ def calculate_avg_slot_concurrency(
 def calculate_cost_estimates(
     total_bytes_billed: int,
     slot_hours: float,
-    ondemand_rate_per_tb: float = 6.25,
+    ondemand_rate_per_tib: float = 6.25,
     editions_rate_per_slot_hour: float = 0.06,
 ) -> Tuple[float, float]:
     """Computes dollar cost estimates for both On-Demand and Editions pricing.
 
     Pricing baseline:
-    - On-Demand: $6.25 per TB ($6.25 / 1,099,511,627,776 bytes) by default.
+    - On-Demand: $6.25 per TiB ($6.25 / 1,099,511,627,776 bytes) by default.
     - Enterprise Edition equivalence: $0.06 per slot-hour by default.
 
     Note:
-        Pricing rates vary significantly across Google Cloud regions, editions
-        (Standard, Enterprise, Enterprise Plus), and commitment tiers. Refer to
-        official documentation: https://cloud.google.com/bigquery/pricing
+        Default rates serve as offline reference baselines. AI agents and users
+        should retrieve live regional pricing rates at runtime from
+        https://cloud.google.com/bigquery/pricing (matching region, edition,
+        and commitment tier) and pass them explicitly via --ondemand-rate
+        and --slot-hour-rate.
 
     Args:
         total_bytes_billed: Total billed bytes scanned.
         slot_hours: Total slot-hours consumed.
-        ondemand_rate_per_tb: Pricing rate in USD per TB scanned (default: 6.25).
+        ondemand_rate_per_tib: Pricing rate in USD per TiB scanned (default: 6.25).
         editions_rate_per_slot_hour: Pricing rate in USD per slot-hour (default: 0.06).
 
     Returns:
         Tuple of (cost_ondemand_usd, cost_editions_usd).
     """
-    bytes_per_tb = 1_099_511_627_776.0
-    ondemand_usd = (total_bytes_billed / bytes_per_tb) * ondemand_rate_per_tb
+    bytes_per_tib = 1_099_511_627_776.0
+    ondemand_usd = (total_bytes_billed / bytes_per_tib) * ondemand_rate_per_tib
     editions_usd = slot_hours * editions_rate_per_slot_hour
     return (round(ondemand_usd, 4), round(editions_usd, 4))
 
@@ -197,6 +199,25 @@ def calculate_cost_estimates(
 # ==============================================================================
 # Detection Heuristics
 # ==============================================================================
+
+_CROSS_JOIN_PATTERN = re.compile(r"(?i)\bCROSS\s+JOIN\b")
+_TAUTOLOGY_JOIN_PATTERN = re.compile(
+    r"(?is)\bJOIN\b.+?\bON\s+(?:1\s*=\s*1|TRUE)\b"
+)
+_WHERE_CLAUSE_PATTERN = re.compile(r"(?i)\bWHERE\b")
+_FUNCTION_WRAPPER_ANTIPATTERN = re.compile(
+    r"(?i)\bWHERE\b[\s\S]*?\b(?:"
+    r"(?:DATE|TIMESTAMP|DATETIME)\s*\(\s*[a-zA-Z_][a-zA-Z0-9_.]*\s*(?:,[^)]*)?\)"
+    r"|EXTRACT\s*\(\s*[a-zA-Z_]+\s+FROM\s+[a-zA-Z_][a-zA-Z0-9_.]*\s*\)"
+    r")\s*(?:=|<|>|<=|>=|\bBETWEEN\b|\bIN\b)"
+)
+_VALID_PARTITION_FILTER_PATTERN = re.compile(
+    r"(?i)\bWHERE\b[\s\S]*?(?:"
+    r"\b(?:_PARTITIONDATE|_PARTITIONTIME)\b"
+    r"|\b(?:[a-zA-Z_][a-zA-Z0-9_.]*)?(?:date|time|ts|day|partition|created|updated)[a-zA-Z0-9_]*\b\s*(?:=|<|>|<=|>=|\bBETWEEN\b|\bIN\b)"
+    r"|(?:=|<|>|<=|>=|\bBETWEEN\b)\s*(?:DATE|TIMESTAMP|DATETIME|CURRENT_DATE|CURRENT_TIMESTAMP|TIMESTAMP_SUB|DATE_SUB|TIMESTAMP_TRUNC|DATE_TRUNC|['\"]\d{4}-\d{2}-\d{2})"
+    r")"
+)
 
 
 def detect_cartesian_joins(
@@ -234,17 +255,12 @@ def detect_cartesian_joins(
             )
 
     # Check SQL text for explicit CROSS JOIN or missing join predicates
-    cross_join_pattern = re.compile(r"(?i)\bCROSS\s+JOIN\b")
-    tautology_join_pattern = re.compile(
-        r"(?is)\bJOIN\b.+?\bON\s+(?:1\s*=\s*1|TRUE)\b"
-    )
-
-    if cross_join_pattern.search(query_text):
+    if _CROSS_JOIN_PATTERN.search(query_text):
         reasons.append("Query contains explicit CROSS JOIN syntax.")
-    if tautology_join_pattern.search(query_text):
+    if _TAUTOLOGY_JOIN_PATTERN.search(query_text):
         reasons.append("Query contains unconditional join predicate (e.g. ON 1=1).")
 
-    return (len(reasons) > 0, reasons)
+    return (bool(reasons), reasons)
 
 
 def detect_slot_contention(
@@ -276,7 +292,7 @@ def detect_slot_contention(
                 "of its time waiting for available slots."
             )
 
-    return (len(reasons) > 0, reasons)
+    return (bool(reasons), reasons)
 
 
 def detect_unpartitioned_scans(
@@ -296,36 +312,18 @@ def detect_unpartitioned_scans(
 
     if total_bytes_billed >= ten_gb:
         scanned_gb = total_bytes_billed / (1024 * 1024 * 1024)
-        has_where = bool(re.search(r"(?i)\bWHERE\b", query_text))
+        has_where = bool(_WHERE_CLAUSE_PATTERN.search(query_text))
 
-        # Flag function wrappers on columns in WHERE clause (e.g., WHERE DATE(order_timestamp) = ...)
-        # which invalidate BigQuery partition pruning
-        function_wrapper_antipattern = re.compile(
-            r"(?i)\bWHERE\b[\s\S]*?\b(?:"
-            r"(?:DATE|TIMESTAMP|DATETIME)\s*\(\s*[a-zA-Z_][a-zA-Z0-9_.]*\s*(?:,[^)]*)?\)"
-            r"|EXTRACT\s*\(\s*[a-zA-Z_]+\s+FROM\s+[a-zA-Z_][a-zA-Z0-9_.]*\s*\)"
-            r")\s*(?:=|<|>|<=|>=|\bBETWEEN\b|\bIN\b)"
-        )
-        # Recognize valid direct partition pruning comparisons (pseudo-columns, direct date/timestamp
-        # column comparisons, or comparisons against date/timestamp literals and functions on RHS)
-        valid_partition_filter_pattern = re.compile(
-            r"(?i)\bWHERE\b[\s\S]*?(?:"
-            r"\b(?:_PARTITIONDATE|_PARTITIONTIME)\b"
-            r"|\b(?:[a-zA-Z_][a-zA-Z0-9_.]*)?(?:date|time|ts|day|partition|created|updated)[a-zA-Z0-9_]*\b\s*(?:=|<|>|<=|>=|\bBETWEEN\b|\bIN\b)"
-            r"|(?:=|<|>|<=|>=|\bBETWEEN\b)\s*(?:DATE|TIMESTAMP|DATETIME|CURRENT_DATE|CURRENT_TIMESTAMP|TIMESTAMP_SUB|DATE_SUB|TIMESTAMP_TRUNC|DATE_TRUNC|['\"]\d{4}-\d{2}-\d{2})"
-            r")"
-        )
-
-        if has_where and function_wrapper_antipattern.search(query_text):
+        if has_where and _FUNCTION_WRAPPER_ANTIPATTERN.search(query_text):
             reasons.append(
                 f"Scanned {scanned_gb:.1f} GB with function wrapper on date/timestamp column in WHERE clause, preventing partition pruning."
             )
-        elif not has_where or not valid_partition_filter_pattern.search(query_text):
+        elif not has_where or not _VALID_PARTITION_FILTER_PATTERN.search(query_text):
             reasons.append(
                 f"Scanned {scanned_gb:.1f} GB without detectable partition filter."
             )
 
-    return (len(reasons) > 0, reasons)
+    return (bool(reasons), reasons)
 
 
 # ==============================================================================
@@ -335,14 +333,14 @@ def detect_unpartitioned_scans(
 
 def parse_job_row(
     row_data: Dict[str, Any],
-    ondemand_rate_per_tb: float = 6.25,
+    ondemand_rate_per_tib: float = 6.25,
     editions_rate_per_slot_hour: float = 0.06,
 ) -> QueryJobMetrics:
     """Transforms raw INFORMATION_SCHEMA row dictionary into QueryJobMetrics.
 
     Args:
         row_data: Raw dictionary from INFORMATION_SCHEMA or mock data.
-        ondemand_rate_per_tb: Dollar rate per TB billed (default: 6.25).
+        ondemand_rate_per_tib: Dollar rate per TiB billed (default: 6.25).
         editions_rate_per_slot_hour: Dollar rate per slot-hour (default: 0.06).
 
     Returns:
@@ -378,23 +376,21 @@ def parse_job_row(
     cache_hit = bool(row_data.get("cache_hit", False))
 
     # Parse stages
-    stages: List[JobStage] = []
-    raw_stages = row_data.get("job_stages") or []
-    for s in raw_stages:
-        stages.append(
-            JobStage(
-                stage_id=int(s.get("stage_id") or 0),
-                name=str(s.get("name") or ""),
-                records_read=int(s.get("records_read") or 0),
-                records_written=int(s.get("records_written") or 0),
-                shuffle_output_bytes=int(s.get("shuffle_output_bytes") or 0),
-                shuffle_output_bytes_spilled=int(
-                    s.get("shuffle_output_bytes_spilled") or 0
-                ),
-                wait_ratio_avg=float(s.get("wait_ratio_avg") or 0.0),
-                slot_ms=int(s.get("slot_ms") or 0),
-            )
+    stages: List[JobStage] = [
+        JobStage(
+            stage_id=int(s.get("stage_id") or 0),
+            name=str(s.get("name") or ""),
+            records_read=int(s.get("records_read") or 0),
+            records_written=int(s.get("records_written") or 0),
+            shuffle_output_bytes=int(s.get("shuffle_output_bytes") or 0),
+            shuffle_output_bytes_spilled=int(
+                s.get("shuffle_output_bytes_spilled") or 0
+            ),
+            wait_ratio_avg=float(s.get("wait_ratio_avg") or 0.0),
+            slot_ms=int(s.get("slot_ms") or 0),
         )
+        for s in (row_data.get("job_stages") or [])
+    ]
 
     # Parse performance insights
     insights = PerformanceInsights()
@@ -415,7 +411,7 @@ def parse_job_row(
     cost_ondemand, cost_editions = calculate_cost_estimates(
         total_bytes_billed,
         slot_hours,
-        ondemand_rate_per_tb=ondemand_rate_per_tb,
+        ondemand_rate_per_tib=ondemand_rate_per_tib,
         editions_rate_per_slot_hour=editions_rate_per_slot_hour,
     )
 
@@ -865,7 +861,7 @@ def fetch_bigquery_jobs(
         sql = generate_information_schema_query(project_id, region, days, limit)
         query_job = client.query(sql)
         results = query_job.result()
-        return [dict(row.items()) for row in results]
+        return [dict(row) for row in results]
     except DefaultCredentialsError as e:
         print("ERROR: Authentication failed. No Application Default Credentials found.", file=sys.stderr)
         print("Remediation: Run 'gcloud auth application-default login' to authenticate.", file=sys.stderr)
@@ -953,9 +949,9 @@ def create_argument_parser() -> argparse.ArgumentParser:
         type=float,
         default=6.25,
         help=(
-            "On-demand pricing rate in USD per TB (default: 6.25). "
-            "Pricing varies by region, edition, and commitments; see "
-            "https://cloud.google.com/bigquery/pricing"
+            "On-demand pricing rate in USD per TiB (default: 6.25). "
+            "Agents should retrieve live regional rates at runtime from "
+            "https://cloud.google.com/bigquery/pricing and pass explicitly."
         ),
     )
     parser.add_argument(
@@ -964,8 +960,8 @@ def create_argument_parser() -> argparse.ArgumentParser:
         default=0.06,
         help=(
             "Editions pricing rate in USD per slot-hour (default: 0.06). "
-            "Pricing varies by region, edition, and commitments; see "
-            "https://cloud.google.com/bigquery/pricing"
+            "Agents should retrieve live regional rates at runtime from "
+            "https://cloud.google.com/bigquery/pricing and pass explicitly."
         ),
     )
     return parser
@@ -1019,7 +1015,7 @@ def run_analysis(args: argparse.Namespace) -> int:
     analyzed_jobs = [
         parse_job_row(
             row,
-            ondemand_rate_per_tb=ondemand_rate,
+            ondemand_rate_per_tib=ondemand_rate,
             editions_rate_per_slot_hour=slot_hour_rate,
         )
         for row in raw_rows
