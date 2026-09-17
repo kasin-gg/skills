@@ -4,9 +4,9 @@ This reference document contains the mandatory diagnostic checklists, root-cause
 
 ## Table of contents
 
-- [Rule SLOT-001: slot contention and queueing](#rule-slot-001-slot-contention-and-queueing): lines 11-38
-- [Rule JOIN-001: Cartesian and exploding joins](#rule-join-001-cartesian-and-exploding-joins): lines 39-88
-- [Rule PART-001: unpartitioned scans and partition pruning](#rule-part-001-unpartitioned-scans-and-partition-pruning): lines 89-149
+- [Rule SLOT-001: slot contention and queueing](#rule-slot-001-slot-contention-and-queueing): lines 11-43
+- [Rule JOIN-001: Cartesian and exploding joins](#rule-join-001-cartesian-and-exploding-joins): lines 44-93
+- [Rule PART-001: unpartitioned scans and partition pruning](#rule-part-001-unpartitioned-scans-and-partition-pruning): lines 94-154
 
 ## Rule SLOT-001: slot contention and queueing
 
@@ -15,7 +15,7 @@ This reference document contains the mandatory diagnostic checklists, root-cause
 - **Mandatory diagnostic and remediation workflow (include all 4 steps in your analysis)**:
   1. **Query `INFORMATION_SCHEMA.JOBS_BY_PROJECT` or `JOBS_TIMELINE_BY_*`**: inspect `total_slot_ms`, `job_stages` (`wait_ratio_avg`), and concurrent slot utilization over time.
   2. **Calculate slot-hours and analyze concurrent slot demands**: compute total slot-hours (`total_slot_ms / (1000 * 60 * 60)`) and evaluate peak concurrent slot demand against available baseline slot capacity.
-  3. **Identify queueing stages or slot contention**: inspect stage execution telemetry where `wait_ratio_avg > 0.40` or `query_info.performance_insights.slot_contention = TRUE`.
+  3. **Identify queueing stages or slot contention**: inspect stage execution telemetry where `wait_ratio_avg > 0.40` or `EXISTS(SELECT 1 FROM UNNEST(query_info.performance_insights.stage_performance_standalone_insights) WHERE slot_contention)`.
   4. **Provide actionable mitigations**:
      - **Allocate capacity reservations or configure slot autoscaling**: in BigQuery Editions (`Standard`, `Enterprise`, `Enterprise Plus`), allocate dedicated baseline slots with an autoscaling ceiling to accommodate burst workloads.
      - **Reduce peak query concurrency**: stagger scheduled batch ETL queries that launch simultaneously at midnight UTC and isolate ad-hoc BI queries into separate reservations.
@@ -29,7 +29,11 @@ This reference document contains the mandatory diagnostic checklists, root-cause
       user_email,
       total_slot_ms / (1000 * 60 * 60) AS slot_hours,
       TIMESTAMP_DIFF(end_time, start_time, SECOND) AS elapsed_seconds,
-      query_info.performance_insights.slot_contention
+      EXISTS(
+        SELECT 1
+        FROM UNNEST(query_info.performance_insights.stage_performance_standalone_insights)
+        WHERE slot_contention
+      ) AS slot_contention
     FROM `region-us`.INFORMATION_SCHEMA.JOBS_BY_PROJECT
     WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
     ORDER BY total_slot_ms DESC
